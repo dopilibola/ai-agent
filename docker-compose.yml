@@ -1,0 +1,42 @@
+# Local backing service for ai-sales (Phase 1) — Postgres.
+#
+# The tenant bots stay on pm2 on the HOST and reach Postgres via the published
+# port, so DATABASE_URL in .env uses `localhost`. (When the bots themselves move
+# into compose later, the host becomes the service name `postgres` on the
+# compose network.)
+#
+#   docker compose up -d            # start Postgres
+#   uv run alembic upgrade head     # once Postgres is healthy
+#
+# Credentials come from .env (POSTGRES_* with dev-safe defaults). Keep
+# DATABASE_URL in .env in sync with them.
+
+name: ai-sales
+
+services:
+  postgres:
+    # pgvector image = Postgres 17 with the `vector` extension preinstalled, so
+    # the planned move off Chroma is just `CREATE EXTENSION vector` — no image
+    # swap needed later.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ai_sales}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_sales}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_sales}
+    ports:
+      # Host port is env-driven so each deploy can dodge whatever already
+      # listens locally; the default is deliberately obscure so a fresh
+      # `docker compose up` never collides with another project's Postgres.
+      # Keep the port in DATABASE_URL in sync with POSTGRES_PORT.
+      - "${POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_sales} -d ${POSTGRES_DB:-ai_sales}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
