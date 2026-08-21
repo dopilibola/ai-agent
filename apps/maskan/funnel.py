@@ -246,12 +246,20 @@ async def _send_client_photos(chat_id: int, urls: list[str]) -> None:
     await ctx.customer_channel.send_photos(int(chat_id), urls)
 
 
-async def _notify(text: str, *, reply_markup: Optional[dict] = None) -> None:
+async def _notify(text: str, *, reply_markup: Optional[dict] = None) -> int:
+    """Broadcast to the operators; returns how many admins actually got it.
+
+    The count matters for handoffs: muting a chat that nobody was told about
+    would leave the client talking to a wall (see `escalate_to_human`)."""
     ctx = get_context()
     if ctx.notifier is None:
         logger.warning("Maskan notifier not wired; dropping operator message")
-        return
-    await ctx.notifier.notify_text(text, reply_markup=reply_markup)
+        return 0
+    try:
+        return await ctx.notifier.notify_text(text, reply_markup=reply_markup)
+    except Exception:
+        logger.exception("Maskan: operator notification failed")
+        return 0
 
 
 def _unmute_row(chat_id: int) -> list[dict]:
@@ -662,9 +670,11 @@ async def escalate_to_human(
     repo = get_repository()
     lead = await repo.get_active_lead_by_chat(chat_id)
     ctx = get_context()
+    muted = False
     if ctx.mute_store is not None:
         try:
             await ctx.mute_store.mute(int(chat_id))
+            muted = True
         except Exception:
             logger.exception("Maskan: muting chat %s failed", chat_id)
 
@@ -674,7 +684,7 @@ async def escalate_to_human(
     if lead is not None:
         rows.append(notif.close_button(lead.id)["inline_keyboard"][0])
     markup = {"inline_keyboard": rows}
-    await _notify(
+    delivered = await _notify(
         notif.handoff_message(
             name=name or (lead.name if lead else ""),
             reason=reason,
@@ -686,7 +696,23 @@ async def escalate_to_human(
         ),
         reply_markup=markup,
     )
-    logger.info("Maskan chat %s handed to a human: %s", chat_id, reason)
+    if muted and not delivered:
+        # Nobody was reachable, so nobody can press «включить ИИ» — a mute here
+        # would silence the chat forever. Better a mediocre AI answer than a
+        # client left with no one at all.
+        try:
+            await ctx.mute_store.unmute(int(chat_id))
+            muted = False
+        except Exception:
+            logger.exception("Maskan: rolling back mute for chat %s failed", chat_id)
+        logger.error(
+            "Maskan chat %s: handoff notification reached no operator — mute rolled back",
+            chat_id,
+        )
+    logger.info(
+        "Maskan chat %s handed to a human (%s operator(s) notified, muted=%s): %s",
+        chat_id, delivered, muted, reason,
+    )
 
 
 async def stop_contact(

@@ -1,26 +1,29 @@
-"""Maskan agent tools.
+"""Maskan agent tools — standalone: this tenant owns its catalogue and its money.
 
 * SALES_TOOLS   — the client-facing agent on the userbot. It walks a client from
   "I want my father's grave looked after" to a paid order: finds the cemetery,
-  registers the grave, quotes the real price list, and creates the order with
-  its Payme link. Everything it writes goes through the Django backend, which
-  owns the data and the money.
-* MANAGER_TOOLS — Maskan staff on the operator bot: find a case, see where it
-  stands, and close one that's dead.
+  registers the grave, quotes the real price list, creates the order and hands
+  over the Payme/Uzum links that pay the operator's own merchant account.
+* MANAGER_TOOLS — staff on the operator bot: find a case, see where it stands,
+  read the price list, and move a paid order through accepted → completed.
+
+Everything reads and writes *our* Postgres (`apps/maskan/models.py`). The Maskan
+Django backend is no longer in this path: a client needs no app account, and the
+bot keeps selling whether or not that backend is up.
 
 Tools read the live chat from `core.context` (never their args), matching the
-rest of the platform. They return JSON strings, and they turn `ApiError` into a
-readable `error` field rather than raising — a backend hiccup should cost the
-client one awkward sentence, not the whole turn.
+rest of the platform, and return JSON strings — a failure comes back as an
+`error` field rather than an exception, so a hiccup costs the client one awkward
+sentence, not the whole turn.
 
 Two rules are enforced *in code*, not in the prompt, because a prompt can be
 argued with and money cannot:
 
-* **prices come from the backend** — `create_order` sends service *codes*, and
-  the backend resolves the amounts, so a model that misremembers a price cannot
-  put a wrong number into a real order;
-* **nothing here can mark an order paid** — that is Payme's webhook, observed by
-  `order_watcher.py`.
+* **prices come from the catalogue** — the tools resolve service *codes* against
+  `maskan_services` and an order freezes a price snapshot, so a model that
+  misremembers a price cannot put a wrong number into a real order;
+* **nothing here can mark an order paid** — that is the payment providers'
+  callback (`payments_api.py`), observed by `payment_watcher.py`.
 """
 
 from __future__ import annotations
@@ -31,12 +34,16 @@ from typing import Optional
 
 from langchain_core.tools import tool
 
-from apps.maskan import api_client as api
 from apps.maskan import funnel
-from apps.maskan.api_client import ApiError
+from apps.maskan import payments
 from apps.maskan.config import config
 from apps.maskan.messages import FREQ_LABELS_UZ
-from apps.maskan.models import STAGE_TITLES_UZ
+from apps.maskan.models import (
+    ORDER_ACCEPTED,
+    ORDER_PAID,
+    ORDER_STATUS_UZ,
+    STAGE_TITLES_UZ,
+)
 from apps.maskan.repository import get_repository
 from core.context import current_channel, current_chat_id
 
@@ -64,100 +71,151 @@ async def _chat_identity() -> tuple[Optional[int], str, str]:
     return chat_id, info.get("username") or "", info.get("name") or ""
 
 
-async def _remember_account(chat_id: int, user: dict, username: str = "") -> None:
-    """Copy the resolved Maskan account onto the lead.
-
-    `django_user_id` is what lets an operator (or the admin panel) jump from a
-    Telegram conversation to the right account in Maskan's own admin, and the
-    name/phone give the operator notifications something readable. Best-effort —
-    never let bookkeeping break a client's turn.
-    """
-    try:
-        lead = await funnel.ensure_lead(
-            chat_id=chat_id,
-            name=user.get("full_name") or "",
-            phone=user.get("phone") or "",
-            username=username,
-        )
-        user_id = user.get("id")
-        if user_id and lead.django_user_id != int(user_id):
-            await get_repository().update_lead(lead.id, django_user_id=int(user_id))
-    except Exception:
-        logger.debug("_remember_account failed for chat %s", chat_id, exc_info=True)
-
-
 # ===== client-facing sales agent ============================================
+#
+# Standalone mode: the catalogue, the cemeteries, the graves and the orders all
+# live in *our* Postgres (`apps/maskan/models.py`), not in the Maskan Django
+# backend. Two consequences the prompt relies on:
+#   * a client needs no account, no password and no app — their Telegram chat id
+#     is the identity, so nothing stands between "my father's grave" and a paid
+#     order;
+#   * prices still never come from the model. They come from `maskan_services`
+#     on every quote, and an order stores a *snapshot* of what was sold, so a
+#     later price edit cannot change what a client already agreed to pay.
+
+def _service_row(svc) -> dict:
+    return {
+        "code": svc.code,
+        "name": svc.name_uz,
+        "name_ru": svc.name_ru,
+        "description": svc.desc_uz,
+        "price": svc.price,
+    }
+
+
+def _cemetery_row(row) -> dict:
+    label = " ".join(part for part in (row.city, row.district) if part)
+    return {
+        "id": row.id,
+        "name": row.name_uz,
+        "name_ru": row.name_ru,
+        "city": row.city,
+        "district": row.district,
+        "label": f"{row.name_uz} ({label})" if label else row.name_uz,
+    }
+
+
+def _grave_row(row) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "relation": row.relation,
+        "born": row.born,
+        "died": row.died,
+        "sector": row.sector,
+        "cemetery": row.cemetery_label,
+        "cemetery_id": row.cemetery_id,
+    }
+
+
+def _order_row(row) -> dict:
+    return {
+        "order_id": row.id,
+        "status": row.status,
+        "status_uz": ORDER_STATUS_UZ.get(row.status, row.status),
+        "total": row.total,
+        "frequency": FREQ_LABELS_UZ.get(row.frequency, row.frequency),
+        "grave": row.grave_label,
+        "cemetery": row.cemetery_label,
+        "services": [item.get("name") for item in (row.items or [])],
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
 
 @tool
 async def list_services() -> str:
-    """The official Maskan price list — every care service with its real price
-    in so'm.
+    """The official price list — every care service with its real price in so'm.
 
     ALWAYS call this before naming any price. Never quote a price from memory or
-    from earlier in the conversation: prices are set in the admin panel and can
-    change between one chat and the next. Returns service `code`s — you need
-    those exact codes for create_order.
+    from earlier in the conversation: prices are edited by staff and can change
+    between one chat and the next. Returns service `code`s — you need those exact
+    codes for quote_services and create_order.
     """
-    try:
-        services = await api.list_services()
-    except ApiError as exc:
-        return _fail(exc.detail)
-    return _dump({"success": True, "services": services})
+    services = await get_repository().list_services()
+    if not services:
+        return _fail("Narxlar ro'yxati hozircha bo'sh — xodimga murojaat qiling.")
+    rows = [_service_row(s) for s in services]
+    entry = min(rows, key=lambda r: r["price"]) if rows else None
+    return _dump({
+        "success": True,
+        "services": rows,
+        # The two-option rule travels with the data rather than living only in
+        # the prompt: a single price with "shall I book it?" is where clients go
+        # quiet, and a rule stated next to the numbers is followed far more
+        # reliably than the same rule three screens up in the system prompt.
+        "sales_rule": (
+            "Narx aytadigan har bir xabarda KAMIDA IKKITA to'plam bo'lsin, ikkalasi ham "
+            "narxi bilan, oxirida «қайси бири маъқул?» degan tanlov savoli. Bitta narx aytib "
+            "«расмийлаштирайликми?» deb so'rama."
+        ),
+        "entry_option": entry,
+        "no_arithmetic": (
+            "Faqat shu ro'yxatdagi raqamlarni ayt. Bir tashrifga bo'lish, chegirma, foiz yoki "
+            "taxminiy summa hisoblash TAQIQLANADI."
+        ),
+    })
 
 
 @tool
 async def find_cemetery(query: str) -> str:
     """Find the cemetery a client names, so a grave can be attached to it.
 
-    Search by cemetery name, city or region — clients often say only the city
+    Search by cemetery name, city or district — clients often say only the city
     ("Toshkentda") or a half-remembered name. Returns candidates with their `id`,
     which add_grave needs.
 
-    If several look plausible, show the client the short list and let them pick;
-    if nothing matches, ask for the city or district rather than guessing.
+    The list only holds cemeteries the caretakers actually cover (Tashkent city
+    and Tashkent region). If nothing matches, the result carries `out_of_area:
+    true`: tell the client plainly that the service does not reach there yet, do
+    NOT quote a price, and do NOT open an order.
 
     query: what the client said about the location, in their own words.
     """
-    try:
-        rows = await api.find_cemeteries(query or "")
-    except ApiError as exc:
-        return _fail(exc.detail)
-    if not rows:
-        return _dump({"success": True, "cemeteries": [], "hint": "Hech narsa topilmadi — shahar yoki tumanni so'rang."})
-    return _dump({"success": True, "cemeteries": rows})
-
-
-@tool
-async def my_account() -> str:
-    """Check whether this Telegram chat is linked to a Maskan app account.
-
-    Call this EARLY — registering a grave and creating an order both need an
-    account.
-
-    If it returns `linked: false`, you CANNOT link it yourself, by phone number
-    or otherwise: linking is what decides where Maskan sends password-reset
-    codes, so it only happens where Telegram itself vouches for the number.
-    Send the client to the Maskan bot (the `link_url` in the result), where they
-    press "Telefon raqamni yuborish" — it takes them a few seconds. Then ask them
-    to come back and call this again. If they have no Maskan account at all,
-    point them to the app to register first.
-    """
-    chat_id, username, _ = await _chat_identity()
-    if chat_id is None:
-        return _fail("chat context unavailable")
-    try:
-        user = await api.resolve_user(chat_id)
-    except ApiError as exc:
-        return _fail(exc.detail)
-    if user is None:
+    repo = get_repository()
+    rows = await repo.search_cemeteries(query or "")
+    if rows:
+        return _dump({"success": True, "cemeteries": [_cemetery_row(r) for r in rows]})
+    # Nothing matched outright. Before falling back to the whole list, check the
+    # near-miss band: a client who typed "dumbrabad" means "Dombirobod", and
+    # answering "not found" there throws away a real order.
+    suggestions = await repo.suggest_cemeteries(query or "")
+    if suggestions:
         return _dump({
             "success": True,
-            "linked": False,
-            "link_url": config.account_bot_url,
-            "app_url": config.app_android_url,
+            "cemeteries": [],
+            "suggestions": [_cemetery_row(r) for r in suggestions],
+            "hint": (
+                "Aniq moslik yo'q, lekin yaqinlari bor. Mijozdan SO'RA: "
+                "«… қабристонини назарда тутдингизми?» Tasdiqlamaguncha "
+                "bu qabristonni tanlangan deb hisoblama."
+            ),
         })
-    await _remember_account(chat_id, user, username)
-    return _dump({"success": True, "linked": True, "user": user})
+    # Offer the full (short) list so the client can recognise a name — but if the
+    # catalogue itself is empty, say so instead of pretending.
+    everything = await repo.search_cemeteries("", limit=20)
+    if not everything:
+        return _fail("Qabristonlar ro'yxati bo'sh — xodimga murojaat qiling.")
+    return _dump({
+        "success": True,
+        "cemeteries": [],
+        "out_of_area": True,
+        "service_area": config.service_area_label,
+        "known_cemeteries": [r.name_uz for r in everything],
+        "hint": (
+            "Topilmadi. Mijozdan shahar/tumanni so'rang yoki ro'yxatdan tanlatting; "
+            f"xizmat hududi — {config.service_area_label}."
+        ),
+    })
 
 
 @tool
@@ -165,17 +223,14 @@ async def my_graves() -> str:
     """The graves this client has already registered.
 
     Check this before registering a new one — a returning client usually wants
-    care for a grave that is already on file, and re-registering it would
-    clutter their app.
+    care for a grave that is already on file, and re-registering it would create
+    a duplicate.
     """
     chat_id, _, _ = await _chat_identity()
     if chat_id is None:
         return _fail("chat context unavailable")
-    try:
-        graves = await api.list_graves(chat_id)
-    except ApiError as exc:
-        return _fail(exc.detail)
-    return _dump({"success": True, "graves": graves})
+    graves = await get_repository().list_graves(chat_id)
+    return _dump({"success": True, "graves": [_grave_row(g) for g in graves]})
 
 
 @tool
@@ -189,10 +244,9 @@ async def add_grave(
 ) -> str:
     """Register the deceased's grave for this client.
 
-    Call this only once you know the cemetery (via find_cemetery) and the full
-    name of the deceased. Everything else is optional — ask for the sector/row if
-    the client knows it, since it helps the caretaker find the grave, but never
-    hold up the order over it.
+    Call this once you know the cemetery (via find_cemetery), the full name of
+    the deceased, and — where the client knows them — the years of birth and
+    death, which is how the caretaker tells two graves of the same name apart.
 
     Be careful and respectful gathering this: it is a family's loss, not a form.
     Ask for what's missing one thing at a time, and repeat the name back exactly
@@ -207,30 +261,89 @@ async def add_grave(
     chat_id, username, display_name = await _chat_identity()
     if chat_id is None:
         return _fail("chat context unavailable")
-    try:
-        grave = await api.add_grave(
-            chat_id,
-            cemetery_id=int(cemetery_id),
-            name=name,
-            relation=relation,
-            born=born,
-            died=died,
-            sector=sector,
-        )
-    except ApiError as exc:
-        return _fail(exc.detail)
+    if not (name or "").strip():
+        return _fail("Marhumning ism-familiyasi kerak.")
+    repo = get_repository()
+    cemetery = await repo.get_cemetery(cemetery_id)
+    if cemetery is None:
+        return _fail("Bunday qabriston topilmadi — avval find_cemetery bilan tanlang.")
+    grave = await repo.create_grave(
+        chat_id=chat_id,
+        name=name.strip(),
+        cemetery_id=cemetery.id,
+        cemetery_label=cemetery.name_uz,
+        relation=relation or "",
+        born=int(born) if born else None,
+        died=int(died) if died else None,
+        sector=sector or "",
+    )
     try:
         await funnel.note_grave(
             chat_id=chat_id,
-            grave_id=int(grave.get("id") or 0),
-            grave_label=grave.get("name") or name,
-            cemetery_label=grave.get("cemetery") or "",
+            grave_id=grave.id,
+            grave_label=grave.name,
+            cemetery_label=cemetery.name_uz,
             name=display_name,
             username=username,
         )
     except Exception:
         logger.exception("add_grave: funnel transition failed")
-    return _dump({"success": True, "grave": grave})
+    return _dump({"success": True, "grave": _grave_row(grave)})
+
+
+@tool
+async def fix_grave(
+    grave_id: int,
+    name: str = "",
+    relation: str = "",
+    born: Optional[int] = None,
+    died: Optional[int] = None,
+    sector: str = "",
+) -> str:
+    """Correct a grave already on file — spelling of the name, years, sector.
+
+    Use this when the client corrects something you wrote down: "фамилияси
+    Каримов эмас, Каримий", "1948 йил эди". Clients type from memory on a phone
+    keyboard, and the caretaker has to match this name against a headstone, so a
+    typo left in place sends someone to the wrong grave.
+
+    Only the fields you pass are changed; leave the rest empty.
+
+    grave_id : `id` from my_graves / add_grave
+    """
+    chat_id, _, _ = await _chat_identity()
+    if chat_id is None:
+        return _fail("chat context unavailable")
+    repo = get_repository()
+    grave = await repo.get_grave(grave_id)
+    if grave is None or int(grave.chat_id) != int(chat_id):
+        return _fail("Bunday qabr topilmadi.")
+    fields: dict = {}
+    if (name or "").strip():
+        fields["name"] = name.strip()
+    if (relation or "").strip():
+        fields["relation"] = relation.strip()
+    if born:
+        fields["born"] = int(born)
+    if died:
+        fields["died"] = int(died)
+    if (sector or "").strip():
+        fields["sector"] = sector.strip()
+    if not fields:
+        return _fail("O'zgartirish uchun hech bo'lmasa bitta maydon kerak.")
+    updated = await repo.update_grave(grave.id, **fields)
+    # The funnel caches the grave label for its reminders — refresh it, or the
+    # follow-ups keep naming the misspelling the client just corrected.
+    try:
+        await funnel.note_grave(
+            chat_id=chat_id,
+            grave_id=updated.id,
+            grave_label=updated.name,
+            cemetery_label=updated.cemetery_label,
+        )
+    except Exception:
+        logger.exception("fix_grave: funnel transition failed")
+    return _dump({"success": True, "grave": _grave_row(updated)})
 
 
 async def _ensure_grave_context(chat_id: int, grave_id: int) -> None:
@@ -239,26 +352,40 @@ async def _ensure_grave_context(chat_id: int, grave_id: int) -> None:
     `add_grave` records it, but a returning client usually picks a grave that is
     already on file via `my_graves` — in which case nothing has told the funnel
     its name or cemetery, and every later message would say a generic "the
-    grave". So when the lead is missing that label (or points at a different
-    grave), resolve it once from the backend and run the proper transition.
-    Best-effort: a failure here costs a nicer sentence, not the order.
+    grave". Best-effort: a failure here costs a nicer sentence, not the order.
     """
     try:
-        lead = await get_repository().get_active_lead_by_chat(chat_id)
+        repo = get_repository()
+        lead = await repo.get_active_lead_by_chat(chat_id)
         if lead is not None and lead.django_grave_id == int(grave_id) and lead.grave_label:
             return
-        graves = await api.list_graves(chat_id)
-        match = next((g for g in graves if int(g.get("id") or 0) == int(grave_id)), None)
-        if match is None:
+        grave = await repo.get_grave(grave_id)
+        if grave is None or int(grave.chat_id) != int(chat_id):
             return
         await funnel.note_grave(
             chat_id=chat_id,
-            grave_id=int(grave_id),
-            grave_label=match.get("name") or "",
-            cemetery_label=match.get("cemetery") or "",
+            grave_id=grave.id,
+            grave_label=grave.name,
+            cemetery_label=grave.cemetery_label,
         )
     except Exception:
         logger.debug("_ensure_grave_context failed for chat %s", chat_id, exc_info=True)
+
+
+async def _resolve_items(codes: list[str]) -> tuple[list[dict], list[str], int]:
+    """(items, unknown_codes, total) for a set of service codes.
+
+    Items carry the price as it is *right now*; the caller either quotes them or
+    freezes them into an order.
+    """
+    services = await get_repository().services_by_codes(codes)
+    found = {s.code for s in services}
+    unknown = [c for c in codes if c not in found]
+    items = [
+        {"code": s.code, "name": s.name_uz, "name_ru": s.name_ru, "price": s.price}
+        for s in services
+    ]
+    return items, unknown, sum(item["price"] for item in items)
 
 
 @tool
@@ -271,10 +398,10 @@ async def quote_services(grave_id: int, service_codes: list[str]) -> str:
     about this exact quote if the client goes quiet.
 
     It does NOT create an order and does NOT charge anything — use create_order
-    for that, once the client says yes.
+    for that, once they agree.
 
     grave_id      : `id` from my_graves / add_grave
-    service_codes : service `code`s from list_services, e.g. ["clean", "marble"]
+    service_codes : service `code`s from list_services
     """
     chat_id, _, _ = await _chat_identity()
     if chat_id is None:
@@ -282,30 +409,37 @@ async def quote_services(grave_id: int, service_codes: list[str]) -> str:
     codes = [str(c).strip() for c in (service_codes or []) if str(c).strip()]
     if not codes:
         return _fail("Kamida bitta xizmat kodi kerak.")
-    try:
-        services = await api.list_services()
-    except ApiError as exc:
-        return _fail(exc.detail)
-
-    by_code = {s["code"]: s for s in services}
-    unknown = [c for c in codes if c not in by_code]
-    if unknown:
-        return _fail(
-            f"Noma'lum xizmat kodi: {', '.join(unknown)}. list_services dan kodlarni oling."
-        )
-    chosen = [by_code[c] for c in dict.fromkeys(codes)]
-    total = sum(int(s["price"]) for s in chosen)
+    items, unknown, total = await _resolve_items(codes)
+    if not items:
+        return _fail(f"Bunday xizmat topilmadi: {', '.join(unknown)}")
     await _ensure_grave_context(chat_id, int(grave_id))
     try:
         await funnel.note_quote(
-            chat_id=chat_id, service_codes=codes, total=total, grave_id=int(grave_id)
+            chat_id=chat_id,
+            total=total,
+            service_codes=[item["code"] for item in items],
+            grave_id=int(grave_id),
         )
     except Exception:
         logger.exception("quote_services: funnel transition failed")
+    # Hand back the cheaper package alongside the quote, so the alternative the
+    # client should be offered is in front of the model at the moment it writes
+    # the price — not something it has to remember to look up.
+    alternative = None
+    cheaper = [s for s in await get_repository().list_services() if s.price < total]
+    if cheaper:
+        pick = min(cheaper, key=lambda s: total - s.price)
+        alternative = _service_row(pick)
     return _dump({
         "success": True,
+        "items": items,
+        "unknown_codes": unknown,
         "total": total,
-        "services": [{"code": s["code"], "name_uz": s["name_uz"], "price": s["price"]} for s in chosen],
+        "alternative": alternative,
+        "sales_rule": (
+            "Bu narxni yolg'iz aytma: yoniga `alternative` to'plamini ham narxi bilan qo'y "
+            "va mijozdan qaysi birini tanlashini so'ra."
+        ),
     })
 
 
@@ -313,21 +447,23 @@ async def quote_services(grave_id: int, service_codes: list[str]) -> str:
 async def create_order(
     grave_id: int, service_codes: list[str], frequency: str = "once"
 ) -> str:
-    """Create the order and get the client's Payme payment link.
+    """Create the order and get the client's payment links.
 
     Call this ONLY after the client has explicitly agreed to the services and the
-    price. Prices are taken from the server, not from you.
+    price. Prices are taken from the price list, not from you.
 
     The order is created as *awaiting payment*: nothing is charged and no
-    caretaker is dispatched until the client actually pays through the returned
-    link. Send them that link exactly as it comes back — do not shorten,
-    rewrite or describe it.
+    caretaker is dispatched until the client actually pays. The result carries
+    `payment_links` — one URL per provider (Payme, Uzum). Send **every** link,
+    each labelled with its provider name, so the client pays with whatever they
+    have. Copy them exactly as they come back — never shorten, rewrite or
+    describe a payment link.
 
     After calling this, tell them the total and that the work goes to the
-    cemetery's caretaker as soon as payment lands, and that they'll get
+    cemetery's caretaker as soon as the payment lands, and that they'll get
     before/after photos when it's done. Never say the order is paid or confirmed
-    — you cannot see payments; the client will be told automatically when the
-    money arrives.
+    — you cannot see payments; the client is told automatically when the money
+    arrives.
 
     grave_id      : `id` from my_graves / add_grave
     service_codes : service `code`s from list_services
@@ -342,53 +478,91 @@ async def create_order(
         return _fail("Kamida bitta xizmat kodi kerak.")
     if frequency not in FREQ_LABELS_UZ:
         frequency = "once"
+
+    repo = get_repository()
+    grave = await repo.get_grave(grave_id)
+    if grave is None or int(grave.chat_id) != int(chat_id):
+        return _fail("Bunday qabr topilmadi — avval add_grave bilan ro'yxatga oling.")
+    items, unknown, total = await _resolve_items(codes)
+    if not items:
+        return _fail(f"Bunday xizmat topilmadi: {', '.join(unknown)}")
+
     # A client may go straight from my_graves to ordering, never touching
     # quote_services — attach the grave here too so the follow-ups read right.
-    await _ensure_grave_context(chat_id, int(grave_id))
-    try:
-        result = await api.create_order(
-            chat_id, grave_id=int(grave_id), service_codes=codes, frequency=frequency
-        )
-    except ApiError as exc:
-        return _fail(exc.detail)
+    await _ensure_grave_context(chat_id, grave.id)
 
-    checkout_url = str(result.get("checkout_url") or "")
+    order = await repo.create_order(
+        chat_id=chat_id,
+        items=items,
+        total=total,
+        grave_id=grave.id,
+        grave_label=grave.name,
+        cemetery_label=grave.cemetery_label,
+        frequency=frequency,
+    )
+
+    # The invoice the payment providers will call back about. Without merchant
+    # credentials there is no link to send — say so rather than pretending the
+    # order can be paid.
+    payment_links: dict[str, str] = {}
+    if payments.any_provider_enabled():
+        try:
+            invoice = await repo.create_payment(
+                chat_id=chat_id,
+                amount_tiyin=payments.som_to_tiyin(total),
+                order_id=order.id,
+                detail={
+                    "service_codes": [item["code"] for item in items],
+                    "frequency": frequency,
+                    "grave": grave.name,
+                },
+            )
+            await repo.update_order(order.id, payment_id=invoice.id)
+            payment_links = payments.build_links(invoice.id, invoice.amount_tiyin)
+        except Exception:
+            logger.exception("create_order: invoice creation failed")
+    if not payment_links:
+        logger.error("create_order: no payment provider configured — order %s unpayable", order.id)
+
     try:
         await funnel.note_order(
             chat_id=chat_id,
-            order_id=int(result.get("order_id") or 0),
-            total=result.get("amount_som"),
+            order_id=order.id,
+            total=total,
             frequency=frequency,
-            checkout_url=checkout_url,
-            service_codes=codes,
+            checkout_url=next(iter(payment_links.values()), ""),
+            service_codes=[item["code"] for item in items],
         )
     except Exception:
         logger.exception("create_order: funnel transition failed")
-    return _dump({
+
+    result = {
         "success": True,
-        "order_id": result.get("order_id"),
-        "total": result.get("amount_som"),
+        "order_id": order.id,
+        "total": total,
         "frequency": FREQ_LABELS_UZ.get(frequency, frequency),
-        "payment_url": checkout_url,
-    })
+        "payment_links": payment_links,
+    }
+    if not payment_links:
+        result["warning"] = (
+            "To'lov tizimi sozlanmagan — mijozga havola yubormang, "
+            "call_human chaqiring."
+        )
+    return _dump(result)
 
 
 @tool
 async def my_orders() -> str:
-    """This client's orders with their current status, total and result photos.
+    """This client's orders with their current status and total.
 
     Use it when they ask "what's happening with my order" — read the status back
-    in plain words rather than the raw code, and if photos are present say so
-    (they are already sent automatically when the work is confirmed).
+    in plain words rather than the raw code.
     """
     chat_id, _, _ = await _chat_identity()
     if chat_id is None:
         return _fail("chat context unavailable")
-    try:
-        orders = await api.list_orders(chat_id)
-    except ApiError as exc:
-        return _fail(exc.detail)
-    return _dump({"success": True, "orders": orders})
+    orders = await get_repository().list_orders(chat_id)
+    return _dump({"success": True, "orders": [_order_row(o) for o in orders]})
 
 
 @tool
@@ -506,21 +680,78 @@ async def close_lead(lead_id: int, reason: str = "") -> str:
 
 @tool
 async def price_list() -> str:
-    """The live Maskan price list from the backend — the same one clients are
-    quoted. Prices are edited in the Maskan admin panel, not here."""
-    try:
-        services = await api.list_services()
-    except ApiError as exc:
-        return _fail(exc.detail)
-    return _dump({"success": True, "services": services})
+    """The live price list — the same one clients are quoted. Prices are edited
+    by staff (admin panel / seed script), never here."""
+    services = await get_repository().list_services()
+    return _dump({"success": True, "services": [_service_row(s) for s in services]})
+
+
+@tool
+async def open_orders() -> str:
+    """Paid orders waiting to be dispatched or finished.
+
+    This is the staff work queue: an order the client has paid for sits in
+    `paid` until someone marks it accepted, and in `accepted` until the work is
+    done. Nothing moves it automatically — no caretaker app writes to us.
+    """
+    orders = await get_repository().list_orders_by_status([ORDER_PAID, ORDER_ACCEPTED])
+    return _dump({"success": True, "orders": [_order_row(o) for o in orders]})
+
+
+@tool
+async def order_accepted(order_id: int, caretaker: str = "") -> str:
+    """Mark a paid order as taken on by a caretaker, and tell the client.
+
+    Call it when the cemetery worker has actually agreed to do the job.
+
+    order_id  : from open_orders
+    caretaker : the worker's name, if you want it on the record
+    """
+    repo = get_repository()
+    order = await repo.get_order(order_id)
+    if order is None:
+        return _fail("Bunday buyurtma topilmadi.")
+    if order.status not in (ORDER_PAID, ORDER_ACCEPTED):
+        return _fail(f"Buyurtma holati mos emas: {ORDER_STATUS_UZ.get(order.status, order.status)}")
+    order = await repo.mark_order_accepted(order.id, caretaker)
+    lead = await repo.get_active_lead_by_chat(order.chat_id)
+    if lead is not None:
+        try:
+            await funnel.on_work_started(lead, {"caretaker": caretaker})
+        except Exception:
+            logger.exception("order_accepted: funnel transition failed")
+    return _dump({"success": True, "order": _order_row(order)})
+
+
+@tool
+async def order_completed(order_id: int) -> str:
+    """Mark an order's work as finished, and tell the client.
+
+    Call it once the job is really done (and the photos, if any, have been sent
+    to the client).
+
+    order_id : from open_orders
+    """
+    repo = get_repository()
+    order = await repo.get_order(order_id)
+    if order is None:
+        return _fail("Bunday buyurtma topilmadi.")
+    order = await repo.mark_order_completed(order.id)
+    lead = await repo.get_active_lead_by_chat(order.chat_id)
+    if lead is not None:
+        try:
+            await funnel.on_work_completed(lead, {"photos": []})
+        except Exception:
+            logger.exception("order_completed: funnel transition failed")
+    return _dump({"success": True, "order": _order_row(order)})
 
 
 SALES_TOOLS = [
     list_services,
     find_cemetery,
-    my_account,
     my_graves,
     add_grave,
+    fix_grave,
     quote_services,
     create_order,
     my_orders,
@@ -534,6 +765,9 @@ MANAGER_TOOLS = [
     lead_status,
     close_lead,
     price_list,
+    open_orders,
+    order_accepted,
+    order_completed,
 ]
 
 

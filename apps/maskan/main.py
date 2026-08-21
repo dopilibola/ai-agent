@@ -26,13 +26,14 @@ from channels.telegram import TelegramBotChannel, TelegramUserChannel
 from core import Agent, Runtime, Tenant
 from db import checkpointer_scope
 from notifications import UNMUTE_CALLBACK_PREFIX
-from apps.maskan import api_client, funnel
+from apps.maskan import funnel
 from apps.maskan.config import MASKAN_TZ, config
 from apps.maskan.notifications import (
     CLOSE_CALLBACK_PREFIX,
     TASK_DONE_CALLBACK_PREFIX,
 )
-from apps.maskan.order_watcher import OrderWatcher
+from apps.maskan import payments
+from apps.maskan.payment_watcher import PaymentWatcher
 from apps.maskan.scheduler import CareScheduler
 from apps.maskan.services import (
     get_mute_store,
@@ -96,6 +97,10 @@ def _build_sales_agent(checkpointer: Optional[BaseCheckpointSaver]) -> Agent:
         tools=SALES_TOOLS,
         checkpointer=checkpointer,
         token_store=get_token_store(),
+        # Approved operator answers are folded into the prompt per message —
+        # see `core/learning/example_store.py`. Nothing is retrieved until a
+        # human approves a pair in `scripts/gold_review.py`.
+        examples_tenant="maskan" if config.learn_from_operators else None,
     )
 
 
@@ -275,7 +280,11 @@ def build_tenant(
     sync_jobs: list = []
     if include_jobs:
         sync_jobs.append(CareScheduler(cfg=config))
-        sync_jobs.append(OrderWatcher(cfg=config))
+        # Payments taken through our own merchant account: the webhook
+        # process only records them, this job does the talking. (There is no
+        # OrderWatcher any more — standalone mode owns the orders, so nothing
+        # needs polling out of the Django backend.)
+        sync_jobs.append(PaymentWatcher(cfg=config))
     return Tenant(id="maskan", agents=agents, channels=channels, sync_jobs=sync_jobs)
 
 
@@ -290,14 +299,15 @@ def _setup_logging() -> None:
 async def _serve(**flags: bool) -> None:
     async with checkpointer_scope() as checkpointer:
         tenant = build_tenant(checkpointer=checkpointer, **flags)
-        # One early probe so a misconfigured backend shows up in the logs at
-        # startup rather than in the middle of a client's first question.
-        if config.api_configured:
-            await api_client.ping()
-        try:
-            await Runtime(tenant).run_async()
-        finally:
-            await api_client.aclose()
+        # Standalone: the catalogue, graves and orders are ours, so there is no
+        # backend to probe. What *can* leave the bot unable to close a sale is a
+        # missing payment provider — say so once, at startup.
+        if not payments.any_provider_enabled(config):
+            logger.warning(
+                "No payment provider configured (MASKAN_PAYME_MERCHANT_ID / "
+                "MASKAN_UZUM_SERVICE_ID) — orders can be created but not paid."
+            )
+        await Runtime(tenant).run_async()
 
 
 def _bootstrap() -> None:

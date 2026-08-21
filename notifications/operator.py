@@ -33,6 +33,25 @@ logger = logging.getLogger(__name__)
 UNMUTE_CALLBACK_PREFIX = "unmute:"
 
 
+def _raise_for_status(resp: "httpx.Response") -> None:
+    """Like `resp.raise_for_status()` but keeps Telegram's own explanation.
+
+    The Bot API returns the real reason ("chat not found", "can't parse
+    entities", …) in the JSON body; the bare httpx error throws it away and
+    leaves only an opaque 400 in the log.
+    """
+    if resp.is_success:
+        return
+    try:
+        description = resp.json().get("description", "")
+    except Exception:
+        description = resp.text[:200]
+    raise RuntimeError(
+        f"Telegram API {resp.request.url.path.rsplit('/', 1)[-1]} "
+        f"failed: {resp.status_code} {description}"
+    )
+
+
 def unmute_button(chat_id: int, text: str = "🤖 Подключить ИИ") -> dict:
     """Inline-keyboard markup with a single button that re-enables the AI."""
     return {
@@ -104,7 +123,7 @@ class TelegramOperatorNotifier:
                         self._url("sendMessage"),
                         json=payload,
                     )
-                    resp.raise_for_status()
+                    _raise_for_status(resp)
                     sent += 1
                 except Exception:
                     logger.exception("Failed to notify admin %s", chat_id)
@@ -139,7 +158,7 @@ class TelegramOperatorNotifier:
                         self._url("sendPhoto"),
                         json=payload,
                     )
-                    resp.raise_for_status()
+                    _raise_for_status(resp)
                     payload = resp.json()
                     message_id = payload.get("result", {}).get("message_id")
                     if message_id is not None:
@@ -191,7 +210,7 @@ class TelegramOperatorNotifier:
                         self._url("editMessageCaption"),
                         json=edit_payload,
                     )
-                    edit_resp.raise_for_status()
+                    _raise_for_status(edit_resp)
                     updated += 1
                 except Exception:
                     logger.exception("Failed to edit caption for %s/%s", chat_id, message_id)
@@ -207,7 +226,7 @@ class TelegramOperatorNotifier:
                                 "disable_web_page_preview": True,
                             },
                         )
-                        reply_resp.raise_for_status()
+                        _raise_for_status(reply_resp)
                     except Exception:
                         logger.exception("Failed to send reply for %s/%s", chat_id, message_id)
         return updated

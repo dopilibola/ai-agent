@@ -13,7 +13,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Integer, String
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -65,3 +66,45 @@ class ChatProfile(Base):
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ConversationEvent(Base):
+    """Append-only log of what actually happened in a conversation — the corpus
+    the agents are improved from.
+
+    One row per *event*, not per turn: the customer's message, each tool call
+    with its arguments and result status, the agent's reply, out-of-band funnel
+    touches, and the funnel outcome (stage transitions). Rows of one customer
+    turn share a `turn_id`, and a whole conversation shares `thread_id`, so an
+    export can rebuild the dialogue in order and attach the outcome label to it
+    (`scripts/export_training_data.py`).
+
+    Deliberately separate from the LangGraph checkpointer: checkpoints are the
+    agent's *working* state — summarised, compacted, overwritten — while this is
+    the immutable record. Writing is best-effort (`db/training.py` swallows its
+    own errors): a logging failure must never cost the customer a reply.
+    """
+
+    __tablename__ = "conversation_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    thread_id: Mapped[str] = mapped_column(String(255))
+    channel: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    agent: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Groups the events of one customer turn (user message → tools → reply).
+    turn_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # user | assistant | tool | outbound | outcome
+    role: Mapped[str] = mapped_column(String(16))
+    text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Detected language/script of `text`: uz_cyrl | uz_latn | ru | other
+    lang: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_conversation_events_chat", "tenant_id", "chat_id", "id"),
+        Index("ix_conversation_events_thread", "thread_id", "id"),
+        Index("ix_conversation_events_created", "tenant_id", "created_at"),
+    )

@@ -1,0 +1,9 @@
+[Unit]
+Description=ai-agent: announce that %i failed
+
+[Service]
+Type=oneshot
+User=marketing_ttlk_co_uk
+Group=marketing_ttlk_co_uk
+WorkingDirectory=/home/marketing_ttlk_co_uk/ai-agent
+ExecStart=/home/marketing_ttlk_co_uk/ai-agent/.venv/bin/python scripts/watchdog.py --unit-failed %i

@@ -41,6 +41,12 @@ def _int_set(name: str, default: str = "") -> frozenset[int]:
     return frozenset(int(x.strip()) for x in raw.split(",") if x.strip())
 
 
+def _lower_tuple(name: str, default: str = "") -> tuple[str, ...]:
+    """Comma-separated env list, lowercased — used for substring matching."""
+    raw = os.environ.get(name, default)
+    return tuple(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
 def _first_str(*names: str, default: str = "") -> str:
     for n in names:
         v = os.environ.get(n)
@@ -210,6 +216,97 @@ class MaskanConfig:
         default_factory=lambda: os.environ.get(
             "MASKAN_ACCOUNT_BOT_URL", "https://t.me/Maskanuzbot?start=parol"
         )
+    )
+
+    # ----- service area -----------------------------------------------------
+    # Caretakers only work in Tashkent city and Tashkent region, so that is the
+    # only place the agent may sell. `find_cemetery` filters the backend's
+    # results by these markers: a client from Samarqand is told the truth up
+    # front instead of being walked all the way to a payment for work nobody
+    # will do. Matching is a lowercase substring test against the cemetery's
+    # name/city/region/district, so one marker covers both "Toshkent shahri"
+    # and "Toshkent viloyati" (and their Cyrillic spellings).
+    allowed_regions: tuple[str, ...] = field(
+        default_factory=lambda: _lower_tuple(
+            "MASKAN_ALLOWED_REGIONS", "toshkent,tashkent,тошкент,ташкент"
+        )
+    )
+    # Shown to a client whose cemetery falls outside that area.
+    service_area_label: str = field(
+        default_factory=lambda: os.environ.get(
+            "MASKAN_SERVICE_AREA_LABEL", "Тошкент шаҳри ва Тошкент вилояти"
+        )
+    )
+
+    # Fold approved operator answers into the sales prompt (see
+    # core/learning/example_store.py). On by default: only pairs a human ticked
+    # in scripts/gold_review.py are ever retrieved, so the worst case with an
+    # empty table is one extra cheap query per message.
+    learn_from_operators: bool = field(
+        default_factory=lambda: os.environ.get("MASKAN_LEARN_FROM_OPERATORS", "1") != "0"
+    )
+
+    # ----- payments (our own merchant account) ------------------------------
+    # The bot issues its own checkout links so the money lands in the operator's
+    # Payme/Uzum merchant account rather than the Maskan backend's. Empty
+    # merchant ids simply disable that provider — `create_order` then falls back
+    # to whatever link the backend returns, so a missing key degrades to the old
+    # behaviour instead of breaking the sale.
+    payme_merchant_id: str = field(
+        default_factory=lambda: _first_str("MASKAN_PAYME_MERCHANT_ID", "PAYME_MERCHANT_ID")
+    )
+    # The Merchant-API password: Payme authenticates its JSON-RPC calls as
+    # Basic base64("Paycom:<key>"). Never appears in a checkout URL.
+    payme_merchant_key: str = field(
+        default_factory=lambda: _first_str("MASKAN_PAYME_MERCHANT_KEY", "PAYME_MERCHANT_KEY")
+    )
+    # test.paycom.uz until the cabinet is switched to production.
+    payme_test_mode: bool = field(
+        default_factory=lambda: os.environ.get("MASKAN_PAYME_TEST_MODE", "1") == "1"
+    )
+    # The `ac.<field>` name configured for this merchant in the Payme cabinet.
+    # Whatever it is called there, its value is a `maskan_payments.id`.
+    payme_account_field: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_PAYME_ACCOUNT_FIELD", "order_id")
+    )
+
+    # Uzum Bank: payment starts from a deeplink carrying the service id and the
+    # invoice, and Uzum then calls our check/create/confirm/reverse endpoints
+    # with Basic auth (login/password from the merchant cabinet).
+    uzum_service_id: str = field(
+        default_factory=lambda: _first_str("MASKAN_UZUM_SERVICE_ID", "UZUM_SERVICE_ID")
+    )
+    uzum_merchant_login: str = field(
+        default_factory=lambda: _first_str("MASKAN_UZUM_LOGIN", "UZUM_MERCHANT_LOGIN")
+    )
+    uzum_merchant_password: str = field(
+        default_factory=lambda: _first_str("MASKAN_UZUM_PASSWORD", "UZUM_MERCHANT_PASSWORD")
+    )
+    # The field name the Uzum service declares in the merchant cabinet; it is
+    # both the deeplink parameter and the key the callbacks carry the invoice
+    # under. Maskan's existing Uzum service uses `order_id`.
+    uzum_param_field: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_UZUM_PARAM_FIELD", "order_id")
+    )
+    uzum_checkout_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "MASKAN_UZUM_CHECKOUT_URL", "https://www.uzumbank.uz/open-service"
+        )
+    )
+
+    # How often the bot process looks for invoices the webhook marked paid.
+    payment_watcher_interval: int = field(
+        default_factory=lambda: int(
+            os.environ.get("MASKAN_PAYMENT_WATCHER_INTERVAL_SECONDS", "20")
+        )
+    )
+    # Bind address of the webhook service (`maskan-payments-api`). It sits
+    # behind nginx+TLS — the providers require a public HTTPS callback.
+    payments_api_host: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_PAYMENTS_API_HOST", "127.0.0.1")
+    )
+    payments_api_port: int = field(
+        default_factory=lambda: int(os.environ.get("MASKAN_PAYMENTS_API_PORT", "58230"))
     )
 
     # ----- memorial calendar (the seasonal demand driver) ------------------

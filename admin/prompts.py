@@ -102,7 +102,7 @@ PROMPTS: dict[str, list[PromptInfo]] = {
         PromptInfo(
             tenant="maskan",
             key="sales",
-            label="Dilnoza — care advisor (clients)",
+            label="Madamin — care advisor (clients)",
             note=(
                 "Client-facing grave-care advisor on the userbot — finds the "
                 "cemetery, registers the grave, quotes the live price list and "

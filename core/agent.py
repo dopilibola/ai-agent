@@ -6,7 +6,10 @@ share the same Agent — conversations are partitioned by `thread_id`.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import time
 from typing import Any, Callable, Optional, Union
 
 from langchain.agents import create_agent
@@ -14,11 +17,16 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
-from core.context import current_chat_id
+from core.context import current_channel, current_chat_id, current_tenant_id
 from core.token_store import RunTokens, TokenStore
 
 logger = logging.getLogger(__name__)
@@ -70,6 +78,96 @@ def _aggregate_usage(usage_cb: UsageMetadataCallbackHandler) -> RunTokens:
     )
 
 
+
+def _final_text(messages: list[Any]) -> str:
+    """The last assistant message's text — what the customer actually gets."""
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage):
+            return _text_of(msg.content) or (
+                msg.content if isinstance(msg.content, str) else ""
+            )
+    return ""
+
+
+def _turn_tail(messages: list[Any]) -> list[Any]:
+    """The messages produced *this* turn: everything after the user message we
+    just appended (the last HumanMessage in the returned state)."""
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return messages[i + 1:]
+    return list(messages)
+
+
+def _tool_events(tail: list[Any]) -> list[dict]:
+    """Pair each tool call in this turn with its result.
+
+    Returns [{name, args, result, ok}]. `ok` is False when the tool errored —
+    a LangChain ToolMessage marks that with status="error"; tenants also return
+    a plain "error: …" string, which counts too. That flag is the cheapest
+    signal of where the agent is failing in production.
+    """
+    calls: dict[str, dict] = {}
+    ordered: list[dict] = []
+    for msg in tail:
+        if isinstance(msg, AIMessage):
+            for call in getattr(msg, "tool_calls", None) or []:
+                entry = {
+                    "name": call.get("name"),
+                    "args": call.get("args"),
+                    "result": None,
+                    "ok": True,
+                }
+                ordered.append(entry)
+                call_id = call.get("id")
+                if call_id:
+                    calls[call_id] = entry
+        elif isinstance(msg, ToolMessage):
+            entry = calls.get(getattr(msg, "tool_call_id", "") or "")
+            if entry is None:
+                entry = {"name": msg.name, "args": None, "result": None, "ok": True}
+                ordered.append(entry)
+            result = _text_of(msg.content) or (
+                msg.content if isinstance(msg.content, str) else str(msg.content)
+            )
+            entry["result"] = result
+            entry["ok"] = _result_ok(msg, result)
+    return ordered
+
+
+def _result_ok(msg: Any, result: Any) -> bool:
+    """Did this tool call actually succeed?
+
+    Three shapes count as a failure: LangChain's own `status="error"`, a bare
+    "error: …" string, and the tenants' JSON convention
+    `{"success": false, "error": …}` (see `apps/*/tools.py::_fail`). Getting this
+    right is what makes "which tool is failing in production" answerable from
+    the corpus.
+    """
+    if getattr(msg, "status", "success") == "error":
+        return False
+    text = result.strip() if isinstance(result, str) else ""
+    if text.lower().startswith("error"):
+        return False
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+        except Exception:
+            return True
+        if isinstance(data, dict) and (data.get("success") is False or data.get("error")):
+            return False
+    return True
+
+
+def _count_images(content: Any) -> int:
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1
+        for part in content
+        if isinstance(part, dict) and part.get("type") in ("image_url", "image")
+    )
+
+
 class Agent:
     """A LangChain agent bound to a model, prompt, and tool set.
 
@@ -92,6 +190,7 @@ class Agent:
         model_kwargs: Optional[dict] = None,
         model_provider: Optional[str] = None,
         token_store: Optional[TokenStore] = None,
+        examples_tenant: Optional[str] = None,
     ) -> None:
         self.name = name
         self.model_name = model
@@ -105,6 +204,11 @@ class Agent:
         self._llm = self._build_llm()
         self._token_store = token_store
         self._cached_prompt: Optional[str] = None
+        # Approved operator answers retrieved per message and appended to the
+        # prompt. Off unless a tenant id is given.
+        self._examples_tenant = examples_tenant
+        self._extra_prompt = ""
+        self._prompt_lock = asyncio.Lock()
         self._graph = None
         self._rebuild_if_needed()
 
@@ -117,12 +221,35 @@ class Agent:
             kwargs["model_provider"] = self.model_provider
         return init_chat_model(self.model_name, **kwargs)
 
-    def _render_prompt(self) -> str:
+    def _base_prompt(self) -> str:
         return (
             self._system_prompt()
             if callable(self._system_prompt)
             else self._system_prompt
         )
+
+    def _render_prompt(self) -> str:
+        return self._base_prompt() + self._extra_prompt
+
+    @property
+    def prompt_version(self) -> str:
+        """Short fingerprint of the prompt this turn actually ran under.
+
+        Prompts are edited live (admin panel, file edit) with no restart, so a
+        hand-maintained version number would drift the moment someone fixes a
+        typo. Hashing the rendered text is automatic and exact: every corpus row
+        carries the prompt that produced it, which is what makes "did that edit
+        help?" answerable, and a rollback comparable.
+
+        Volatile substitutions (the clock some tenants inject) would otherwise
+        change the hash every minute, so digits are stripped before hashing.
+        """
+        import hashlib
+        import re as _re
+
+        text = self._base_prompt()
+        stable = _re.sub(r"\d", "", text)
+        return hashlib.sha1(stable.encode("utf-8")).hexdigest()[:10]
 
     def _rebuild_if_needed(self) -> None:
         prompt = self._render_prompt()
@@ -162,26 +289,59 @@ class Agent:
         `content` may be a plain string or a multimodal list of content blocks
         (e.g. `[{"type": "text", ...}, {"type": "image_url", ...}]`).
         """
-        self._rebuild_if_needed()
+        extra = await self._examples_for(content)
         config = self.make_config(thread_id)
         usage_cb = UsageMetadataCallbackHandler()
         invoke_config = {**config, "callbacks": [usage_cb]}
-        result = await self._graph.ainvoke(  # type: ignore[union-attr]
+        started = time.monotonic()
+        # One Agent serves every chat, so the retrieved block is per-call state
+        # on a shared object. Build under the lock and keep a local reference to
+        # the graph: a concurrent turn may rebuild `self._graph` immediately
+        # after, but this call keeps the graph carrying *its* examples. The lock
+        # covers a graph construction, never the model call.
+        async with self._prompt_lock:
+            self._extra_prompt = extra
+            self._rebuild_if_needed()
+            graph = self._graph
+        result = await graph.ainvoke(  # type: ignore[union-attr]
             {"messages": [HumanMessage(content=content)]},
             config=invoke_config,
         )
+        latency_ms = int((time.monotonic() - started) * 1000)
         await self._record_token_usage(usage_cb)
-        for msg in reversed(result.get("messages", [])):
-            if isinstance(msg, AIMessage):
-                text = msg.content
-                if isinstance(text, list):
-                    text = "".join(
-                        part.get("text", "")
-                        for part in text
-                        if isinstance(part, dict) and part.get("type") == "text"
-                    )
-                return text or ""
-        return ""
+        messages = result.get("messages", [])
+        reply = _final_text(messages)
+        # Append the turn to the conversation corpus (db/training.py). Last,
+        # and self-swallowing, so it can never cost the customer a reply.
+        await self._log_turn(
+            thread_id=thread_id,
+            content=content,
+            messages=messages,
+            usage_cb=usage_cb,
+            latency_ms=latency_ms,
+            reply=reply,
+        )
+        return reply
+
+    async def _examples_for(self, content: Union[str, list[Any]]) -> str:
+        """Approved operator answers similar to what the customer just asked.
+
+        Always returns a string ("" when disabled, empty or failing) — a
+        retrieval problem must cost the reply nothing.
+        """
+        if not self._examples_tenant:
+            return ""
+        try:
+            from core.learning import example_store
+
+            query = _text_of(content) or (content if isinstance(content, str) else "")
+            if not query:
+                return ""
+            found = await example_store.search(self._examples_tenant, query)
+            return example_store.render_block(found)
+        except Exception:
+            logger.debug("example retrieval failed", exc_info=True)
+            return ""
 
     async def compose(self, directive: str, *, thread_id: str) -> str:
         """Write a single proactive outbound message to the customer, in the
@@ -227,13 +387,17 @@ class Agent:
             logger.exception("compose model call failed for %s", thread_id)
             return ""
         await self._record_token_usage(usage_cb)
-        return _text_of(ai.content).strip()
+        text = _text_of(ai.content).strip()
+        await self._log_outbound(thread_id=thread_id, directive=directive, text=text)
+        return text
 
     async def record_user_message(
         self,
         content: Union[str, list[Any]],
         *,
         thread_id: str,
+        log_role: Optional[str] = None,
+        log_text: Optional[str] = None,
     ) -> None:
         """Append a message to a thread's history WITHOUT invoking the model.
 
@@ -247,6 +411,13 @@ class Agent:
         `as_node="model"` attributes the write to the agent's single LLM node
         (the node name `create_agent` uses), which keeps the update unambiguous
         even on a thread that has no prior checkpoint.
+
+        `log_role` also appends the message to the durable corpus
+        (`conversation_events`). Worth doing for an operator reply above all:
+        what the human wrote after a handoff is the answer the agent *should*
+        have given, and the checkpoint it otherwise lives in gets summarised and
+        overwritten. `log_text` carries the raw text when `content` is a wrapped
+        note ("[A human operator replied: …]").
         """
         self._rebuild_if_needed()
         config = self.make_config(thread_id)
@@ -255,6 +426,102 @@ class Agent:
             {"messages": [HumanMessage(content=content)]},
             as_node="model",
         )
+        if log_role:
+            await self._log_recorded(
+                thread_id=thread_id,
+                role=log_role,
+                text=log_text if log_text is not None else content,
+            )
+
+    async def _log_recorded(
+        self, *, thread_id: str, role: str, text: Any
+    ) -> None:
+        """Corpus row for a message that bypassed the model. Self-swallowing:
+        the same rule as `_log_turn` — logging never costs a conversation."""
+        try:
+            from db import training
+
+            if not training.enabled():
+                return
+            tenant_id, _, rest = thread_id.partition(":")
+            channel, _, chat = rest.partition(":")
+            await training.log_event(
+                tenant_id=tenant_id or None,
+                chat_id=int(chat) if chat.lstrip("-").isdigit() else 0,
+                thread_id=thread_id,
+                channel=channel or None,
+                agent=self.name,
+                role=role,
+                text=text if isinstance(text, str) else str(text),
+            )
+        except Exception:
+            logger.debug("training log_recorded failed for %s", thread_id, exc_info=True)
+
+    async def _log_turn(
+        self,
+        *,
+        thread_id: str,
+        content: Any,
+        messages: list[Any],
+        usage_cb: UsageMetadataCallbackHandler,
+        latency_ms: int,
+        reply: str,
+    ) -> None:
+        """Append this turn (customer message → tool calls → reply) to the
+        conversation corpus. Best-effort — see db/training.py."""
+        try:
+            from db import training
+
+            if not training.enabled():
+                return
+            run = _aggregate_usage(usage_cb)
+            channel = current_channel.get()
+            await training.log_turn(
+                tenant_id=current_tenant_id.get(),
+                chat_id=current_chat_id.get(),
+                thread_id=thread_id,
+                channel=getattr(channel, "name", None),
+                agent=self.name,
+                user_text=_text_of(content) or (content if isinstance(content, str) else ""),
+                reply_text=reply,
+                tool_events=_tool_events(_turn_tail(messages)),
+                tokens={
+                    "input": run.input_tokens,
+                    "cached": run.cached_input_tokens,
+                    "output": run.output_tokens,
+                    "total": run.total_tokens,
+                },
+                latency_ms=latency_ms,
+                images=_count_images(content),
+                model=self.model_name,
+                prompt_version=self.prompt_version,
+            )
+        except Exception:  # pragma: no cover
+            logger.debug("training log_turn failed for %s", thread_id, exc_info=True)
+
+    async def _log_outbound(
+        self, *, thread_id: str, directive: str, text: str
+    ) -> None:
+        """Record a composed proactive message (a scheduled funnel touch): what
+        the funnel asked for, and what the agent actually wrote."""
+        try:
+            from db import training
+
+            if not training.enabled() or not text:
+                return
+            channel = current_channel.get()
+            await training.log_event(
+                tenant_id=current_tenant_id.get(),
+                chat_id=current_chat_id.get(),
+                thread_id=thread_id,
+                channel=getattr(channel, "name", None),
+                agent=self.name,
+                role="outbound",
+                text=text,
+                meta={"directive": directive[:1000], "model": self.model_name},
+            )
+        except Exception:  # pragma: no cover
+            logger.debug("training log_outbound failed for %s", thread_id, exc_info=True)
 
     async def _record_token_usage(
         self, usage_cb: UsageMetadataCallbackHandler

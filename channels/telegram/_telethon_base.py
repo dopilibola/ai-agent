@@ -509,10 +509,26 @@ class TelethonChannel(Channel):
             image: Optional[bytes] = None
             if event.message.photo or self._is_image_file(event.message):
                 image = await self._download_photo(event)
-            elif not text and (event.message.voice or event.message.audio):
+            elif not text and self._is_spoken(event.message):
                 if self._voice is None:
+                    # No transcriber wired: say so rather than going quiet.
+                    await self._say_voice_unclear(event)
                     return
-                text = await self._transcribe_voice(event)
+                # A round video note is a spoken message with a picture around
+                # it; only the audio matters here.
+                text = await self._transcribe_voice(
+                    event, video=event.message.video_note is not None
+                )
+                if not text:
+                    # Transcription returns "" for silence, noise and its own
+                    # internal failures alike — it swallows exceptions. Without
+                    # this the customer spoke and heard nothing back.
+                    await self._say_voice_unclear(event)
+                    return
+            if not text and image is None:
+                # No words, no picture — but possibly a sticker or another
+                # attachment, which is a reply too and must not meet silence.
+                text = self._attachment_note(event.message) or ""
             if not text and not image:
                 return
             # If the user replied to / quoted an earlier message, fold that
@@ -590,8 +606,14 @@ class TelethonChannel(Channel):
                 return
             agent = self._agent_for(chat_id)
             try:
+                # `log_role="operator"` also files the raw text in the durable
+                # corpus: a handoff reply is the answer the agent should have
+                # produced, and it is the only place that answer exists.
                 await agent.record_user_message(
-                    note, thread_id=self.thread_id(chat_id, agent)
+                    note,
+                    thread_id=self.thread_id(chat_id, agent),
+                    log_role="operator",
+                    log_text=text,
                 )
                 logger.info("Recorded operator handoff message for %s", chat_id)
             except Exception:
@@ -709,6 +731,59 @@ class TelethonChannel(Channel):
         return self.agent
 
     @staticmethod
+    def _attachment_note(msg) -> Optional[str]:
+        """A short textual stand-in for anything the agent cannot read directly.
+
+        People answer with a sticker constantly — 🙏 for thanks, 👍 to agree,
+        😂 at a joke — and a sticker carries no text and no usable image, so the
+        message used to fall through both branches and the agent said nothing
+        at all. Silence reads as being ignored, which is worse than a plain
+        reply.
+
+        The sticker's own emoji is the meaning, so it is handed to the agent as
+        a labelled note rather than as a bare emoji: the label keeps the agent
+        from mistaking it for something the customer typed.
+        """
+        if msg is None:
+            return None
+        if msg.sticker is not None:
+            emoji = ""
+            try:
+                emoji = (getattr(msg.file, "emoji", "") or "").strip()
+            except Exception:
+                emoji = ""
+            if not emoji:
+                # Fall back to the sticker attribute's `alt`, which is where the
+                # emoji lives when Telethon's `file` helper has nothing.
+                for attr in getattr(msg.document, "attributes", []) or []:
+                    alt = getattr(attr, "alt", None)
+                    if alt:
+                        emoji = str(alt).strip()
+                        break
+            return f"[Mijoz stiker yubordi: {emoji}]" if emoji else "[Mijoz stiker yubordi]"
+        if msg.gif is not None:
+            return "[Mijoz GIF yubordi]"
+        # Everything below would otherwise fall through every branch and leave
+        # the customer with no answer at all. A labelled note costs one sentence
+        # from the agent; silence costs the conversation.
+        if getattr(msg, "contact", None) is not None:
+            return "[Mijoz telefon raqamini (kontakt) yubordi]"
+        if getattr(msg, "geo", None) is not None or getattr(msg, "venue", None) is not None:
+            return "[Mijoz joylashuvni yubordi]"
+        if getattr(msg, "poll", None) is not None:
+            return "[Mijoz so'rovnoma yubordi]"
+        if getattr(msg, "video", None) is not None:
+            return "[Mijoz video yubordi]"
+        if getattr(msg, "document", None) is not None:
+            name = ""
+            try:
+                name = (getattr(msg.file, "name", "") or "").strip()
+            except Exception:
+                name = ""
+            return f"[Mijoz fayl yubordi: {name}]" if name else "[Mijoz fayl yubordi]"
+        return None
+
+    @staticmethod
     def _is_image_file(msg) -> bool:
         """True for a picture sent uncompressed ("send as file") — Telegram
         delivers it as a document, so `msg.photo` is None. People do this for
@@ -730,20 +805,39 @@ class TelethonChannel(Channel):
             logger.exception("Failed to download photo from %s", event.chat_id)
             return None
 
-    async def _transcribe_voice(self, event: events.NewMessage.Event) -> str:
+    @staticmethod
+    def _is_spoken(msg) -> bool:
+        """Voice note, audio file, or the round video note people record when
+        they'd rather talk than type."""
+        if msg is None:
+            return False
+        return bool(msg.voice or msg.audio or getattr(msg, "video_note", None))
+
+    async def _say_voice_unclear(self, event: events.NewMessage.Event) -> None:
+        try:
+            await event.respond(self._unsupported_voice_reply)
+        except Exception:
+            logger.exception("Failed to send voice-error reply to %s", event.chat_id)
+
+    async def _transcribe_voice(
+        self, event: events.NewMessage.Event, *, video: bool = False
+    ) -> str:
         try:
             buf = BytesIO()
             await event.message.download_media(file=buf)
             buf.seek(0)
-            text = await self._voice.transcribe(buf, filename="voice.ogg")
-            logger.info("Transcribed voice from %s: %s", event.chat_id, text)
+            text = await self._voice.transcribe(
+                buf,
+                filename="video_note.mp4" if video else "voice.ogg",
+                mime_type="video/mp4" if video else None,
+            )
+            logger.info(
+                "Transcribed %s from %s: %s",
+                "video note" if video else "voice", event.chat_id, text,
+            )
             return text
         except Exception:
             logger.exception("Failed to transcribe voice from %s", event.chat_id)
-            try:
-                await event.respond(self._unsupported_voice_reply)
-            except Exception:
-                logger.exception("Failed to send voice-error reply to %s", event.chat_id)
             return ""
 
     async def _mark_voice_consumed(
@@ -759,7 +853,7 @@ class TelethonChannel(Channel):
         ids = [
             ev.message.id
             for ev, _, _ in items
-            if ev.message and (ev.message.voice or ev.message.audio)
+            if ev.message and self._is_spoken(ev.message)
         ]
         if not ids:
             return

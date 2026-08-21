@@ -1,0 +1,9 @@
+[Unit]
+Description=ai-agent: collect operator answers daily
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

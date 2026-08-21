@@ -62,10 +62,20 @@ class VoiceTranscriber:
         *,
         filename: str = "voice.ogg",
         prompt: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> str:
+        """Transcribe a clip. Returns "" on any failure — callers must treat an
+        empty string as "not understood" and say so, never as "nothing to do".
+
+        `mime_type` overrides the guess from `filename`: a Telegram video note
+        is an `.mp4` whose extension says audio, but the payload is video and
+        the provider has to be told so.
+        """
         try:
             if self._provider == "google_genai":
-                return await self._transcribe_google(audio, filename, prompt or self._prompt)
+                return await self._transcribe_google(
+                    audio, filename, prompt or self._prompt, mime_type
+                )
             return await self._transcribe_openai(audio, filename, prompt or self._prompt)
         except Exception:
             logger.exception("Voice transcription failed (provider=%s)", self._provider)
@@ -87,7 +97,8 @@ class VoiceTranscriber:
         return (getattr(response, "text", "") or "").strip()
 
     async def _transcribe_google(
-        self, audio: BytesIO, filename: str, prompt: Optional[str]
+        self, audio: BytesIO, filename: str, prompt: Optional[str],
+        mime_type: Optional[str] = None,
     ) -> str:
         from google import genai
         from google.genai import types
@@ -106,7 +117,9 @@ class VoiceTranscriber:
             model=self._model,
             contents=[
                 instruction,
-                types.Part.from_bytes(data=audio.read(), mime_type=_mime_for(filename)),
+                types.Part.from_bytes(
+                    data=audio.read(), mime_type=mime_type or _mime_for(filename)
+                ),
             ],
         )
         return (getattr(response, "text", "") or "").strip()

@@ -1,0 +1,14 @@
+[Unit]
+Description=ai-agent: health watchdog (alerts to Telegram)
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=marketing_ttlk_co_uk
+Group=marketing_ttlk_co_uk
+WorkingDirectory=/home/marketing_ttlk_co_uk/ai-agent
+Environment=PATH=/home/marketing_ttlk_co_uk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/marketing_ttlk_co_uk/ai-agent/.venv/bin/python scripts/watchdog.py
+# Exit code 2 means "a check failed" — the alert was already sent, so systemd
+# should not treat it as a unit failure and fire OnFailure on top of it.
+SuccessExitStatus=0 2
