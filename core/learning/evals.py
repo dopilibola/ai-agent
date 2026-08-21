@@ -148,8 +148,14 @@ def check(
         if needle.lower() in last.lower():
             failures.append(f"oxirgi javobda «{needle}» bo'lmasligi kerak edi")
 
-    if expect.get("script") == "cyrillic" and last and not _is_cyrillic(last):
+    script = expect.get("script")
+    if script == "cyrillic" and last and not _is_cyrillic(last):
         failures.append("javob kirillda emas")
+    # Latin Uzbek is a supported answer script, requested by the client. The
+    # assertion is about the script itself, not about which words the agent
+    # opens with — those vary and are none of the eval's business.
+    if script == "latin" and last and _is_cyrillic(last):
+        failures.append("javob lotinda emas (kirill yozilgan)")
 
     if expect.get("prices_from_catalog", True):
         for value in _numbers(joined):
