@@ -89,11 +89,19 @@ async def embed(text: str) -> Optional[list[float]]:
         return None
 
 
+# An operator reply is only an answer to the customer if it lands while the
+# question is still live. Anything much later is usually not a reply at all —
+# the account that runs the userbot is a real person's Telegram, and a message
+# typed into the wrong chat would otherwise be harvested as a model answer.
+HARVEST_MAX_GAP_HOURS = 6
+
+
 async def harvest(tenant_id: str, *, limit: int = 500) -> int:
     """Pull operator replies out of the corpus into pending example rows.
 
     Idempotent through the unique constraint on `source_event_id`, so it can run
-    on a timer.
+    on a timer. Replies that arrive more than `HARVEST_MAX_GAP_HOURS` after the
+    customer's last message are skipped — see the note above.
     """
     import psycopg
 
@@ -123,6 +131,23 @@ async def harvest(tenant_id: str, *, limit: int = 500) -> int:
             ai_attempt = next((t for r, t in reversed(tail) if r == "assistant"), "")
             if not question:
                 continue
+            cur.execute(
+                """
+                select created_at from conversation_events
+                where thread_id = %s and id < %s and role = 'user'
+                order by id desc limit 1
+                """,
+                (thread_id, event_id),
+            )
+            asked_at = (cur.fetchone() or [None])[0]
+            if asked_at is not None and created_at is not None:
+                gap_hours = (created_at - asked_at).total_seconds() / 3600
+                if gap_hours > HARVEST_MAX_GAP_HOURS:
+                    logger.debug(
+                        "skipping operator event %s: %.1fh after the question",
+                        event_id, gap_hours,
+                    )
+                    continue
             import json
 
             cur.execute(
