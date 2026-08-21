@@ -669,6 +669,23 @@ async def escalate_to_human(
     """
     repo = get_repository()
     lead = await repo.get_active_lead_by_chat(chat_id)
+    if lead is None:
+        # A handoff can happen before the funnel has anything to hold: someone
+        # asks for a service we do not sell, leaves a phone number, and hangs
+        # up. Without a lead that case exists only in the conversation corpus —
+        # invisible to `find_lead` and to every manager tool, so nobody follows
+        # it up. Create one on the spot, exactly as `stop_contact` does, so the
+        # handoff leaves a trace staff can actually find.
+        try:
+            lead = await repo.create_lead(
+                chat_id=chat_id,
+                name=name,
+                tg_username=username,
+                request=reason,
+                stage=STAGE_NEW,
+            )
+        except Exception:
+            logger.exception("Maskan: creating a lead for handoff %s failed", chat_id)
     ctx = get_context()
     muted = False
     if ctx.mute_store is not None:
