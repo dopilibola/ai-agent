@@ -59,7 +59,7 @@ from apps.maskan.models import (
     MaskanLead,
     MaskanScheduledTask,
 )
-from apps.maskan.repository import get_repository
+from apps.maskan.repository import TENANT as TENANT_ID, get_repository
 from notifications import UNMUTE_CALLBACK_PREFIX
 
 if TYPE_CHECKING:
@@ -181,7 +181,7 @@ async def _compose_or_fallback(
     convey: str,
     fallback: str,
     must_include: tuple[str, ...] = (),
-) -> str:
+) -> tuple[str, bool]:
     """Compose a scripted touch THROUGH the customer agent so it comes out in the
     client's own language and tone — Maskan's clients write Uzbek, Russian, or a
     mix, and a fixed-language template would break that.
@@ -190,17 +190,22 @@ async def _compose_or_fallback(
     verbatim if composition is unavailable, so the client always gets something;
     `must_include` fragments (the payment link above all) are appended if the
     model dropped them, so critical data can never go missing.
+
+    Returns `(text, composed)` — `composed` is False when the fallback was used,
+    which the caller needs because `Agent.compose` logs what it wrote and a
+    fallback would otherwise leave no trace in the corpus.
     """
     ctx = get_context()
     text = ""
     if ctx.customer_channel is not None:
         text = await ctx.customer_channel.compose_outbound(int(chat_id), convey)
+    composed = bool(text)
     if not text:
         text = fallback
     for frag in must_include:
         if frag and frag not in text:
             text = text.rstrip() + "\n" + frag
-    return text
+    return text, composed
 
 
 async def _send_client_directed(
@@ -218,10 +223,22 @@ async def _send_client_directed(
     ctx = get_context()
     if ctx.customer_channel is None:
         raise RuntimeError("customer channel not wired")
-    text = await _compose_or_fallback(
+    text, composed = await _compose_or_fallback(
         chat_id, convey=convey, fallback=fallback, must_include=must_include
     )
     await ctx.customer_channel.send_text(int(chat_id), text)
+    if not composed:
+        # The composer logs what it wrote; a template send would leave the
+        # corpus (and the daily cap that reads it) blind to a real message.
+        from db.outreach import log_sent_touch
+
+        await log_sent_touch(
+            tenant_id=TENANT_ID,
+            chat_id=int(chat_id),
+            thread_id=ctx.customer_channel.thread_id(int(chat_id)),
+            text=text,
+            channel=getattr(ctx.customer_channel, "name", None),
+        )
     await _record_outbound(chat_id, text)
 
 
@@ -1145,7 +1162,37 @@ async def _exec_memorial(lead: MaskanLead, task: MaskanScheduledTask) -> None:
     )
 
 
+async def _exec_operator_followup(lead, task: MaskanScheduledTask) -> None:
+    """A message a person scheduled from the admin panel ("write to them in a
+    month"), not one the funnel decided to send.
+
+    Deliberately has no script of its own: the operator's note says what to
+    raise, and the agent writes it in the client's own language off the real
+    conversation. With no note it is the plainest thing there is — ask whether
+    the grave needs looking after again.
+    """
+    fresh = await get_repository().get_active_lead_by_chat(task.chat_id)
+    name = (fresh.name if fresh else "") or (lead.name if lead else "")
+    grave = (fresh.grave_label if fresh else "") or (lead.grave_label if lead else "")
+    note = str((task.payload or {}).get("note") or "").strip()
+    whose = f"{grave} qabri" if grave else "qabr"
+    convey = (
+        f"Operator so'radi, mijozga qayta yoz. Mavzu: {note}"
+        if note
+        else (
+            f"Mijoz bilan avval gaplashgan eding. {whose} yana parvarish talab "
+            "qiladimi, deb qisqa va bosiq so'ra. Bosim qilma."
+        )
+    )
+    await _send_client_directed(
+        task.chat_id,
+        convey=convey,
+        fallback=(note or msg.s8_recurring(name, grave, "once")),
+    )
+
+
 ACTIONS = {
+    "operator_followup": _exec_operator_followup,
     "chat_followup1": _exec_chat_followup1,
     "chat_followup2": _exec_chat_followup2,
     "s1_followup": _exec_s1_followup,
@@ -1171,8 +1218,62 @@ ACTIONS = {
 }
 
 
-async def execute_task(task: MaskanScheduledTask) -> None:
+# Tasks whose message goes to *staff*, not to the client. The outreach pacing
+# rules are about not pestering a customer, so they must never delay an SLA
+# alert or a "this payment never arrived" check — an operator's own reminders
+# are not marketing.
+OPERATOR_ONLY_ACTIONS = frozenset({"s4_operator_check", "s5_sla", "s6_sla"})
+
+
+async def _outreach_gate(task: MaskanScheduledTask) -> bool:
+    """Ask `db.outreach` whether this client-facing touch may go out now.
+
+    Returns True to run the task. Otherwise the row is either moved to a later
+    time (quiet hours, daily cap) or cancelled outright — the latter when the
+    funnel is writing on its own initiative and that is switched off, because a
+    deferral would park it in the queue for as long as the switch stays off.
+    Never blocks staff-facing tasks, and never blocks on its own failure: an
+    unreadable policy sends, exactly as it did before.
+    """
+    if task.action_type in OPERATOR_ONLY_ACTIONS:
+        return True
+    try:
+        from db.outreach import check_send, is_operator_task
+
+        decision = await check_send(
+            TENANT_ID,
+            int(task.chat_id),
+            MASKAN_TZ,
+            now=_now(),
+            operator_initiated=is_operator_task(task.payload),
+        )
+    except Exception:
+        logger.debug("outreach gate failed for task %s", task.id, exc_info=True)
+        return True
+    if decision.send:
+        return True
+    if decision.drop:
+        await get_repository().cancel_task(task.id, reason=decision.reason)
+        logger.info(
+            "Maskan task %s (%s) cancelled — %s",
+            task.id, task.action_type, decision.reason,
+        )
+        return False
+    when = decision.retry_at or (_now() + timedelta(hours=1))
+    await get_repository().defer_task(task.id, when, reason=decision.reason)
+    logger.info(
+        "Maskan task %s (%s) deferred to %s — %s",
+        task.id, task.action_type, when.isoformat(timespec="minutes"), decision.reason,
+    )
+    return False
+
+
+async def execute_task(task: MaskanScheduledTask) -> bool:
     """Run one claimed task. Raises on failure so the scheduler can retry/park it.
+
+    Returns False when the task was **deferred** rather than run — the outreach
+    pacing gate moved it to a later time and it is pending again, so the caller
+    must not mark it done.
 
     Skips leads that went terminal since the task was scheduled — a defensive
     backstop on top of cancel-on-close.
@@ -1180,16 +1281,19 @@ async def execute_task(task: MaskanScheduledTask) -> None:
     action = ACTIONS.get(task.action_type)
     if action is None:
         logger.error("Unknown Maskan action_type %r (task %s)", task.action_type, task.id)
-        return
+        return True
+    if not await _outreach_gate(task):
+        return False
     if not task.lead_id:
         # Chat-addressed task — the executor does its own fire-time checks.
         await action(None, task)
-        return
+        return True
     lead = await get_repository().get_lead(task.lead_id)
     if lead is None:
         logger.warning("Maskan task %s references missing lead %s", task.id, task.lead_id)
-        return
+        return True
     if lead.status == STATUS_CLOSED:
         logger.info("Maskan task %s skipped — lead %s is closed", task.id, lead.id)
-        return
+        return True
     await action(lead, task)
+    return True

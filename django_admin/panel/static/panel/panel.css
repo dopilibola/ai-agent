@@ -1,0 +1,316 @@
+/* Panel styling.
+ *
+ * Built on the admin's own CSS variables (--body-bg, --hairline-color,
+ * --primary, …) rather than fixed colours, so every page here follows the
+ * user's light/dark choice along with the rest of the admin. Only the
+ * categorical colours — the segment and message-direction hues — are fixed,
+ * and those are picked to stay legible on both themes.
+ */
+
+:root {
+  --panel-radius: 10px;
+  --panel-gap: 1rem;
+  --panel-card-bg: var(--body-bg);
+  --panel-line: var(--hairline-color, #e4e4e4);
+}
+
+/* ---------------------------------------------------------------- nav */
+
+.panel-nav {
+  display: flex;
+  gap: .25rem;
+  flex-wrap: wrap;
+  padding: .5rem 2.5rem 0;
+  background: var(--body-bg);
+  border-bottom: 1px solid var(--panel-line);
+}
+.panel-nav a {
+  padding: .5rem .85rem;
+  border-radius: 6px 6px 0 0;
+  font-size: .88rem;
+  font-weight: 500;
+  color: var(--body-quiet-color, #666);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.panel-nav a:hover { color: var(--link-fg); background: var(--darkened-bg, rgba(127,127,127,.06)); }
+.panel-nav a.active {
+  color: var(--body-loud-color, #111);
+  border-bottom-color: var(--primary, #417690);
+}
+
+/* --------------------------------------------------------------- cards */
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: var(--panel-gap);
+  margin-bottom: 1.4rem;
+}
+.panel-grid.wide { grid-template-columns: repeat(auto-fill, minmax(31rem, 1fr)); }
+
+.card {
+  background: var(--panel-card-bg);
+  border: 1px solid var(--panel-line);
+  border-radius: var(--panel-radius);
+  padding: 1rem 1.15rem 1.1rem;
+  min-width: 0;
+}
+.card h3 {
+  margin: 0 0 .5rem;
+  font-size: .74rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--body-quiet-color, #777);
+}
+.card .card-foot { margin-top: .7rem; font-size: .82rem; }
+.card-err { font-size: .8rem; color: var(--error-fg, #ba2121); word-break: break-word; }
+
+/* KPI row */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: .75rem;
+  margin-bottom: 1.4rem;
+}
+.kpi {
+  background: var(--panel-card-bg);
+  border: 1px solid var(--panel-line);
+  border-radius: var(--panel-radius);
+  padding: .8rem .95rem;
+}
+.kpi .kpi-label {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--body-quiet-color, #777); font-weight: 600;
+}
+.kpi .kpi-value {
+  font-size: 1.75rem; font-weight: 700; line-height: 1.15;
+  font-variant-numeric: tabular-nums; margin-top: .15rem;
+  color: var(--body-loud-color, #111);
+}
+.kpi .kpi-hint { font-size: .76rem; color: var(--body-quiet-color, #888); margin-top: .1rem; }
+
+/* -------------------------------------------------------------- charts */
+
+.chart { width: 100%; height: auto; display: block; }
+.chart-empty { color: var(--body-quiet-color, #888); font-size: .85rem; margin: .8rem 0; }
+.spark { width: 7rem; height: 1.6rem; vertical-align: middle; }
+
+.chart-legend { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .8rem; margin-top: .5rem; }
+.chart-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.chart-legend i { width: .7rem; height: .7rem; border-radius: 2px; display: inline-block; }
+
+.hbars { display: grid; gap: .3rem; }
+.hbar-row { display: grid; grid-template-columns: minmax(6rem, 11rem) 1fr auto; gap: .6rem;
+            align-items: center; font-size: .84rem; }
+.hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+              color: var(--body-quiet-color, #666); }
+.hbar-track { background: var(--darkened-bg, rgba(127,127,127,.12)); border-radius: 4px; height: .95rem; }
+.hbar-fill { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
+.hbar-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ------------------------------------------------------------ segments */
+
+.seg-bar {
+  display: flex; height: 1.5rem; border-radius: 6px; overflow: hidden;
+  background: var(--darkened-bg, rgba(127,127,127,.1));
+}
+.seg-cell { display: block; height: 100%; }
+.seg-legend { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
+.seg-legend-item {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--panel-line); border-radius: 999px;
+  padding: .18rem .6rem; font-size: .8rem; text-decoration: none;
+  color: var(--body-fg);
+}
+.seg-legend-item:hover { border-color: var(--primary, #417690); }
+.seg-legend-item i { width: .6rem; height: .6rem; border-radius: 50%; }
+.seg-legend-item b { font-variant-numeric: tabular-nums; }
+
+.badge {
+  display: inline-block; padding: .1rem .55rem; border-radius: 999px;
+  font-size: .74rem; font-weight: 600; color: #fff; white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- table */
+
+.panel-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.panel-table th {
+  text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--body-quiet-color, #777); padding: .5rem .55rem;
+  border-bottom: 1px solid var(--panel-line); white-space: nowrap;
+}
+.panel-table td { padding: .5rem .55rem; border-bottom: 1px solid var(--panel-line); vertical-align: middle; }
+.panel-table tbody tr:hover { background: var(--darkened-bg, rgba(127,127,127,.05)); }
+.panel-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.panel-table .who { font-weight: 600; }
+.panel-table .sub { color: var(--body-quiet-color, #888); font-weight: 400; font-size: .8rem; }
+.table-wrap { overflow-x: auto; }
+
+/* split bar showing how a chat's outbound breaks down */
+.mix { display: inline-flex; height: .5rem; width: 4.5rem; border-radius: 3px;
+       overflow: hidden; background: var(--darkened-bg, rgba(127,127,127,.15)); vertical-align: middle; }
+.mix i { display: block; height: 100%; }
+
+/* --------------------------------------------------------------- forms */
+
+.panel-filters {
+  display: flex; gap: .55rem; align-items: center; flex-wrap: wrap;
+  margin-bottom: 1rem; padding: .75rem .9rem;
+  background: var(--panel-card-bg); border: 1px solid var(--panel-line);
+  border-radius: var(--panel-radius);
+}
+.panel-filters label { font-size: .8rem; color: var(--body-quiet-color, #777); }
+.panel-filters select, .panel-filters input[type="search"] { margin: 0; }
+.panel-filters .spacer { flex: 1; }
+.pill-row { display: flex; gap: .3rem; flex-wrap: wrap; }
+.pill {
+  border: 1px solid var(--panel-line); border-radius: 999px;
+  padding: .2rem .7rem; font-size: .8rem; text-decoration: none; color: var(--body-fg);
+}
+.pill.active { background: var(--primary, #417690); border-color: var(--primary, #417690); color: #fff; }
+
+.pager { display: flex; gap: .5rem; align-items: center; margin-top: 1rem; font-size: .85rem; }
+
+/* ---------------------------------------------------------- transcript */
+
+.tr-msg {
+  border-left: 3px solid var(--panel-line); padding: .55rem .85rem; margin: .5rem 0;
+  border-radius: 0 8px 8px 0; background: var(--darkened-bg, rgba(127,127,127,.05));
+}
+.tr-msg.user { border-color: #2b7de9; }
+.tr-msg.assistant { border-color: #1a7f37; }
+.tr-msg.operator { border-color: #b26b00; }
+.tr-msg.tool { border-color: #8a8a8a; font-size: .85rem; }
+.tr-msg.outbound { border-color: #7d4fd1; }
+.tr-msg.outcome { border-color: #a40e26; font-size: .85rem; }
+.tr-head {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--body-quiet-color, #888); margin-bottom: .25rem;
+}
+.tr-body { white-space: pre-wrap; word-break: break-word; }
+.tr-json {
+  font-size: .76rem; color: var(--body-quiet-color, #888); white-space: pre-wrap;
+  margin: .35rem 0 0; max-height: 12em; overflow: auto;
+}
+
+@media (max-width: 767px) {
+  .panel-nav { padding-inline: 1rem; }
+  .hbar-row { grid-template-columns: minmax(5rem, 8rem) 1fr auto; }
+}
+
+/* The eval-filter note. Visible but quiet: it reports a filter, not an error. */
+.eval-note {
+  font-size: .83rem;
+  color: var(--body-quiet-color, #888);
+  margin: -.5rem 0 1rem;
+  padding: .45rem .8rem;
+  border: 1px dashed var(--panel-line);
+  border-radius: 8px;
+}
+.eval-note.warn { border-style: solid; border-color: #b26b00; color: #b26b00; }
+
+/* ------------------------------------------------- buy probability */
+
+/* The panel's central number. A bar plus the figure, because a percentage in a
+ * table of percentages is unreadable without something to compare it against. */
+.prob { display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
+.prob-track {
+  display: inline-block; width: 5.5rem; height: .55rem; border-radius: 4px;
+  background: var(--darkened-bg, rgba(127,127,127,.15)); overflow: hidden;
+}
+.prob-track i { display: block; height: 100%; border-radius: 4px; }
+.prob b { font-variant-numeric: tabular-nums; font-size: .9rem; min-width: 2.5rem; }
+.prob.big .prob-track { width: 100%; height: .8rem; }
+.prob.big { display: flex; }
+.prob.big b { font-size: 1.4rem; min-width: 3.6rem; text-align: right; }
+
+.ok { color: #1a7f37; }
+.bad { color: #a40e26; }
+.warn-txt { color: #b26b00; }
+.nowrap { white-space: nowrap; }
+
+/* -------------------------------------------------- category chips */
+
+/* The categories are the filter: one always-visible row, so switching between
+ * "who is close to buying" and "who went quiet" is a single click. */
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
+.chip {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--panel-line); border-radius: 999px;
+  padding: .3rem .75rem; font-size: .84rem; text-decoration: none;
+  color: var(--body-fg); background: var(--panel-card-bg);
+}
+.chip i { width: .6rem; height: .6rem; border-radius: 50%; }
+.chip b { font-variant-numeric: tabular-nums; }
+.chip:hover { border-color: var(--primary, #417690); }
+.chip.active { border-color: var(--primary, #417690); box-shadow: inset 0 0 0 1px var(--primary, #417690); }
+
+/* ------------------------------------------------------ chat view */
+
+/* The customer page mirrors the Telegram conversation, so it is laid out like
+ * one: their messages on the left, ours on the right. */
+.panel-grid.split { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.side { display: grid; gap: var(--panel-gap); align-content: start; }
+
+.chat-card { display: flex; flex-direction: column; }
+.chat { max-height: 68vh; overflow-y: auto; padding-right: .3rem; }
+.bubble {
+  max-width: 82%; margin: .45rem 0; padding: .5rem .75rem;
+  border-radius: 12px; background: var(--darkened-bg, rgba(127,127,127,.08));
+  border: 1px solid var(--panel-line);
+}
+.bubble.user { margin-right: auto; border-color: #2b7de9; }
+.bubble.assistant { margin-left: auto; border-color: #1a7f37; }
+.bubble.outbound { margin-left: auto; border-color: #7d4fd1; }
+.bubble.operator { margin-left: auto; border-color: #b26b00; }
+.bubble-head {
+  font-size: .72rem; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--body-quiet-color, #888); margin-bottom: .2rem;
+}
+.bubble-body { white-space: pre-wrap; word-break: break-word; }
+
+.copy-link {
+  width: 12rem; font-size: .78rem; padding: .25rem .5rem;
+  border: 1px solid var(--panel-line); border-radius: 6px;
+  background: var(--darkened-bg, rgba(127,127,127,.06)); color: var(--body-quiet-color, #777);
+}
+
+.panel-table.compact td { padding: .3rem .4rem; font-size: .84rem; }
+
+/* A button that reads as a link: the queue's row actions are small and
+ * frequent, and three real buttons per row would drown the table. */
+.link-btn {
+  background: none; border: none; padding: .1rem .3rem; margin: 0;
+  color: var(--link-fg, #417690); cursor: pointer; font-size: .82rem;
+}
+.link-btn:hover { text-decoration: underline; }
+.link-btn.danger { color: #a40e26; }
+
+.pill.primary { background: var(--primary, #417690); border-color: var(--primary, #417690); color: #fff; }
+
+/* ------------------------------------------------- outreach rules */
+
+.rules .rule { margin: .9rem 0; }
+.rules .rule > label { display: block; font-size: .84rem; margin-bottom: .25rem; }
+.rules .sub { font-size: .78rem; color: var(--body-quiet-color, #888); }
+.switch { display: flex; gap: .6rem; align-items: flex-start; margin-bottom: .4rem; }
+.switch input { margin-top: .25rem; }
+
+.tables-block { margin-top: 1.6rem; }
+.tables-block > summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }
+
+@media (max-width: 1100px) {
+  .panel-grid.split { grid-template-columns: 1fr; }
+}
+
+/* The "recently sent" log is a list, not a conversation: the bubbles keep their
+ * colour but drop the right-alignment that only makes sense inside a chat. */
+.sent-log .bubble { max-width: 100%; margin-left: 0; margin-right: 0; }
+
+/* The customer page's action bar: two forms side by side, wrapping on narrow
+ * screens, with their explanation on its own full-width line. */
+.panel-filters.actions { gap: .75rem; }
+.panel-filters.actions form { display: flex; gap: .4rem; align-items: center; margin: 0; }
+.panel-filters.actions .followup input[type="text"] { min-width: 14rem; margin: 0; }

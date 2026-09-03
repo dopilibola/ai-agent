@@ -60,6 +60,17 @@ admin = [
     "python-multipart>=0.0.18",
 ]
 
+# Django admin panel (`django_admin/`). A second panel over the same Postgres,
+# independent of the `admin` extra: install whichever you run. Django's own
+# tables live in a local SQLite file, so installing this changes nothing about
+# the shared schema — Alembic still owns it.
+panel = [
+    "django>=5.2",
+    "uvicorn[standard]>=0.34.0",
+    # Serves the admin's static files from the panel process, so it is one port.
+    "whitenoise>=6.8.0",
+]
+
 [project.scripts]
 oygul-customer = "apps.oygul.customer:run"
 oygul-merchant = "apps.oygul.merchant:run"
@@ -75,10 +86,11 @@ maskan-payments-api = "apps.maskan.payments_api:run"
 maskan-userbot = "apps.maskan.main:run_userbot"
 maskan-operator = "apps.maskan.main:run_operator"
 admin-api = "admin.server:run"
+django-panel = "django_admin.run:run"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["admin", "apps", "channels", "core", "db", "notifications", "rag", "sync", "voice"]
+packages = ["admin", "apps", "channels", "core", "db", "django_admin", "notifications", "rag", "sync", "voice"]

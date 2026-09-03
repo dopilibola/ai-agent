@@ -52,7 +52,7 @@ from apps.byd.models import (
     BydLead,
     BydScheduledTask,
 )
-from apps.byd.repository import get_repository
+from apps.byd.repository import TENANT as TENANT_ID, get_repository
 from notifications import UNMUTE_CALLBACK_PREFIX
 
 if TYPE_CHECKING:
@@ -155,7 +155,7 @@ async def _compose_or_fallback(
     convey: str,
     fallback: str,
     must_include: tuple[str, ...] = (),
-) -> str:
+) -> tuple[str, bool]:
     """Compose a scripted funnel touch THROUGH the customer agent so it comes out
     in the customer's language and tone — not a fixed-language template. Returns
     the text to send (does not send).
@@ -164,17 +164,22 @@ async def _compose_or_fallback(
     template used if composition is unavailable/fails (so the customer always gets
     *something*); `must_include` fragments (payment link, address, social URLs) are
     appended if the model dropped them, so critical data can never go missing.
+
+    Returns `(text, composed)` — `composed` is False when the fallback was used,
+    which the caller needs because `Agent.compose` logs what it wrote and a
+    fallback would otherwise leave no trace in the corpus.
     """
     ctx = get_context()
     text = ""
     if ctx.customer_channel is not None:
         text = await ctx.customer_channel.compose_outbound(int(chat_id), convey)
+    composed = bool(text)
     if not text:
         text = fallback
     for frag in must_include:
         if frag and frag not in text:
             text = text.rstrip() + "\n" + frag
-    return text
+    return text, composed
 
 
 async def _send_client_directed(
@@ -193,10 +198,22 @@ async def _send_client_directed(
     ctx = get_context()
     if ctx.customer_channel is None:
         raise RuntimeError("customer channel not wired")
-    text = await _compose_or_fallback(
+    text, composed = await _compose_or_fallback(
         chat_id, convey=convey, fallback=fallback, must_include=must_include
     )
     await ctx.customer_channel.send_text(int(chat_id), text)
+    if not composed:
+        # The composer logs what it wrote; a template send would leave the
+        # corpus (and the daily cap that reads it) blind to a real message.
+        from db.outreach import log_sent_touch
+
+        await log_sent_touch(
+            tenant_id=TENANT_ID,
+            chat_id=int(chat_id),
+            thread_id=ctx.customer_channel.thread_id(int(chat_id)),
+            text=text,
+            channel=getattr(ctx.customer_channel, "name", None),
+        )
     await _record_outbound(chat_id, text)
 
 
@@ -736,13 +753,13 @@ async def _send_voucher(lead: BydLead, voucher_number: int) -> None:
         pdf = None
 
     arrival = msg.arrival_label(lead.arrival_date)
-    caption = await _compose_or_fallback(
+    caption, _composed = await _compose_or_fallback(
         lead.chat_id,
         convey=(
             "Поздравь клиента: его место в клинике BYD Medical официально "
             "забронировано! Скажи, что во вложении ваучер с деталями заезда"
             + (f", и что ждём его {arrival}" if arrival else "")
-            + ". Тёпло, коротко, можно с эмодзи."
+            + ". Тепло и коротко, обычным сообщением."
         ),
         fallback=msg.s6_voucher_caption(lead.name, lead.arrival_date),
     )
@@ -1537,8 +1554,61 @@ ACTIONS = {
 }
 
 
-async def execute_task(task: BydScheduledTask) -> None:
+# Tasks whose message goes to *staff* or to Bitrix, not to the client. The
+# outreach pacing rules exist so a customer is not pestered, so they must never
+# delay an operator's own reminder or a CRM write.
+OPERATOR_ONLY_ACTIONS = frozenset(
+    {"s1_escalation", "s4_operator_confirm", "s5_operator_check", "s7_operator_prepare"}
+)
+
+
+async def _outreach_gate(task: BydScheduledTask) -> bool:
+    """Ask `db.outreach` whether this client-facing touch may go out now.
+
+    Returns True to run the task. Otherwise the row is moved to a later time
+    (quiet hours, daily cap) or cancelled outright — the latter when the funnel
+    is writing on its own initiative and that is switched off. Never blocks a
+    staff/CRM task, and never blocks on its own failure: an unreadable policy
+    sends, exactly as before.
+    """
+    if task.action_type in OPERATOR_ONLY_ACTIONS or task.action_type.startswith("bitrix_"):
+        return True
+    try:
+        from db.outreach import check_send, is_operator_task
+
+        decision = await check_send(
+            TENANT_ID,
+            int(task.chat_id),
+            CLINIC_TZ,
+            now=_now(),
+            operator_initiated=is_operator_task(task.payload),
+        )
+    except Exception:
+        logger.debug("outreach gate failed for BYD task %s", task.id, exc_info=True)
+        return True
+    if decision.send:
+        return True
+    if decision.drop:
+        await get_repository().cancel_task(task.id, reason=decision.reason)
+        logger.info(
+            "BYD task %s (%s) cancelled — %s", task.id, task.action_type, decision.reason
+        )
+        return False
+    when = decision.retry_at or (_now() + timedelta(hours=1))
+    await get_repository().defer_task(task.id, when, reason=decision.reason)
+    logger.info(
+        "BYD task %s (%s) deferred to %s — %s",
+        task.id, task.action_type, when.isoformat(timespec="minutes"), decision.reason,
+    )
+    return False
+
+
+async def execute_task(task: BydScheduledTask) -> bool:
     """Run one claimed task. Raises on failure so the scheduler can retry/park it.
+
+    Returns False when the task was **deferred** rather than run — the outreach
+    pacing gate moved it to a later time and it is pending again, so the caller
+    must not mark it done.
 
     Skips leads that have gone terminal (closed) since the task was scheduled —
     a defensive backstop on top of cancel-on-close.
@@ -1546,19 +1616,22 @@ async def execute_task(task: BydScheduledTask) -> None:
     action = ACTIONS.get(task.action_type)
     if action is None:
         logger.error("Unknown BYD action_type %r (task %s)", task.action_type, task.id)
-        return
+        return True
+    if not await _outreach_gate(task):
+        return False
     if not task.lead_id:
         # Chat-addressed task (lead_id=0) — armed before any lead existed. The
         # executor does its own fire-time checks against the chat's latest state.
         await action(None, task)
-        return
+        return True
     lead = await get_repository().get_lead(task.lead_id)
     if lead is None:
         logger.warning("BYD task %s references missing lead %s", task.id, task.lead_id)
-        return
+        return True
     # `bitrix_*` actions run even for a closed lead — the close itself must
     # reach the CRM. The closed-skip guards only client-facing touches.
     if lead.status == STATUS_CLOSED and not task.action_type.startswith("bitrix_"):
         logger.info("BYD task %s skipped — lead %s is closed", task.id, lead.id)
-        return
+        return True
     await action(lead, task)
+    return True

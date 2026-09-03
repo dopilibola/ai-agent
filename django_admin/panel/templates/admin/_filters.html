@@ -1,0 +1,15 @@
+{# Shared filter bar: tenant + period. Pages add their own controls around it. #}
+<label for="f-tenant">Tenant</label>
+<select id="f-tenant" name="tenant" onchange="this.form.submit()">
+  <option value="">barchasi</option>
+  {% for t in tenants %}
+    <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+  {% endfor %}
+</select>
+<span class="spacer"></span>
+<div class="pill-row">
+  {% for p in periods %}
+    <a class="pill {% if p == days %}active{% endif %}"
+       href="?{% if tenant %}tenant={{ tenant }}&{% endif %}days={{ p }}">{{ p }} kun</a>
+  {% endfor %}
+</div>

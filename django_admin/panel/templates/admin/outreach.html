@@ -1,0 +1,196 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+Automatic messages: the rules, the queue, and what actually went out.
+
+One page rather than three, because the three questions an operator has are
+"are we writing to people?", "what is about to go out?" and "does it read like
+a person wrote it?" — and answering them in different places is how a funnel
+ends up sending things nobody meant to send.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+{% if tenants|length > 1 %}
+  <form class="panel-filters" method="get">
+    <select name="tenant" onchange="this.form.submit()" aria-label="Bo‘lim">
+      {% for t in tenants %}
+        <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <span class="spacer"></span>
+  </form>
+{% endif %}
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Bot o‘zi yozadimi</div>
+    <div class="kpi-value" style="color:{% if policy.enabled %}#b26b00{% else %}#1a7f37{% endif %}">
+      {% if policy.enabled %}Ha{% else %}Yo‘q{% endif %}
+    </div>
+    <div class="kpi-hint">
+      {% if policy.enabled %}ta’qib xabarlari yoqilgan{% else %}faqat operator rejalashtirsa{% endif %}
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Navbatda</div>
+    <div class="kpi-value">{{ counts.pending }}</div>
+    <div class="kpi-hint">
+      {% if counts.next_at %}eng yaqini {{ counts.next_at|date:"d.m H:i" }}{% else %}rejada yo‘q{% endif %}
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Kutayotgan</div>
+    <div class="kpi-value">{{ counts.waiting }}</div>
+    <div class="kpi-hint">qoida bo‘yicha keyinga surilgan</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Yuborilgan</div>
+    <div class="kpi-value">{{ counts.sent_week }}</div>
+    <div class="kpi-hint">oxirgi 7 kunda</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Xato</div>
+    <div class="kpi-value">{{ counts.failed }}</div>
+    <div class="kpi-hint">yuborib bo‘lmagan</div>
+  </div>
+</div>
+
+<div class="panel-grid split">
+  <div class="side">
+    <div class="card">
+      <h3>Qoidalar</h3>
+      <form method="post" action="{% url 'admin:outreach_save' %}" class="rules">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+
+        <label class="switch">
+          <input type="checkbox" name="enabled" {% if policy.enabled %}checked{% endif %}>
+          <span><b>Bot o‘zi birinchi yozsin</b><br>
+            <span class="sub">O‘chiq bo‘lsa (hozirgi holat) bot hech qachon birinchi
+              yozmaydi — na eslatma, na ta’qib. Mijoz yozganda odatdagidek javob
+              beradi, va operator mijoz sahifasida rejalashtirgan xabar baribir
+              yuboriladi.</span>
+          </span>
+        </label>
+
+        <div class="rule">
+          <label for="qf">Faqat shu soatlarda yozilsin</label>
+          <div>
+            <select id="qf" name="quiet_from">
+              {% for h in hours %}
+                <option value="{{ h }}" {% if h == policy.quiet_from %}selected{% endif %}>{{ h }}:00</option>
+              {% endfor %}
+            </select>
+            —
+            <select name="quiet_to">
+              {% for h in hours %}
+                <option value="{{ h }}" {% if h == policy.quiet_to %}selected{% endif %}>{{ h }}:00</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="sub">Tashqarida qolgani ertalabki soatga suriladi, o‘chib ketmaydi.</div>
+        </div>
+
+        <div class="rule">
+          <label for="cap">Bir mijozga kuniga ko‘pi bilan</label>
+          <div>
+            <input id="cap" type="number" name="daily_cap" min="1" max="20"
+                   value="{{ policy.daily_cap }}" style="width:5rem"> ta xabar
+          </div>
+        </div>
+
+        <div class="rule">
+          <label for="gap">Xabarlar orasida kamida</label>
+          <div>
+            <input id="gap" type="number" name="min_gap_minutes" min="0" max="1440" step="30"
+                   value="{{ policy.min_gap_minutes }}" style="width:5rem"> daqiqa
+          </div>
+          <div class="sub">Ketma-ket kelgan xabarlar reklama tarqatuvchiga o‘xshaydi.
+            Bu ikki chegara faqat botning o‘z ta’qib xabarlariga tegishli —
+            operator qo‘lda rejalashtirgan xabarga emas.</div>
+        </div>
+
+        <button type="submit" class="default">Saqlash</button>
+        <div class="sub" style="margin-top:.5rem">
+          O‘zgarish bir necha soniyada ishlayotgan botga yetadi — qayta ishga tushirish shart emas.
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Xabarlar qanday yoziladi</h3>
+      <p class="sub" style="margin:.2rem 0">
+        Har bir xabar matni yuborish paytida AI tomonidan mijozning o‘z tilida
+        yoziladi — tayyor shablon emas. Shuning uchun bu yerda tahrirlanadigan
+        matn yo‘q: qanday chiqqanini pastdagi «Yaqinda yuborilganlar»
+        ro‘yxatidan o‘qib ko‘rish mumkin.
+      </p>
+      <p class="sub" style="margin:.4rem 0 0">
+        Bitta mijozga xabar rejalashtirish uchun uning sahifasini oching —
+        «1 oydan keyin» kabi tugma o‘sha yerda.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Navbatdagi xabarlar ({{ queued|length }})</h3>
+    <div class="table-wrap">
+    <table class="panel-table">
+      <thead>
+        <tr><th>Qachon</th><th>Kimga</th><th>Nima</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for t in queued %}
+        <tr>
+          <td class="sub nowrap">
+            {{ t.scheduled_for|date:"d.m H:i" }}
+            {% if t.waiting %}<br><span class="warn-txt">surilgan</span>{% endif %}
+          </td>
+          <td class="who">
+            <a href="{% url 'admin:user_detail' t.tenant_id t.chat_id %}">{{ t.who }}</a>
+          </td>
+          <td>
+            {{ t.label }}
+            {% if t.to_operator %}<span class="badge" style="background:#b26b00">operatorga</span>{% endif %}
+            {% if t.by_operator %}<span class="badge" style="background:#417690">operator rejalashtirgan</span>{% endif %}
+            {% if t.last_error and not t.waiting %}<div class="card-err">{{ t.last_error }}</div>{% endif %}
+          </td>
+          <td class="num nowrap">
+            <form method="post" action="{% url 'admin:outreach_task' %}" style="display:inline;margin:0">
+              {% csrf_token %}
+              <input type="hidden" name="tenant" value="{{ tenant }}">
+              <input type="hidden" name="task_id" value="{{ t.task_id }}">
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" name="action" value="now" class="link-btn">hozir</button>
+              <button type="submit" name="action" value="postpone" class="link-btn">+1 kun</button>
+              <button type="submit" name="action" value="cancel" class="link-btn danger">bekor</button>
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">Navbatda xabar yo‘q.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<div class="card sent-log">
+  <h3>Yaqinda yuborilganlar</h3>
+  {% for e in recent %}
+    <div class="bubble outbound">
+      <div class="bubble-head">
+        <a href="{% url 'admin:user_detail' e.tenant_id e.chat_id %}">{{ e.chat_id }}</a>
+        · {{ e.created_at|date:"d.m.Y H:i" }}
+      </div>
+      <div class="bubble-body">{{ e.text|default:"—" }}</div>
+    </div>
+  {% empty %}
+    <p class="chart-empty">Hali avto-xabar yuborilmagan.</p>
+  {% endfor %}
+</div>
+{% endblock %}

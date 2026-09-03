@@ -1,0 +1,13 @@
+{% comment %}
+The buy probability, as a bar plus the number. Included wherever a chat is
+listed so the same person reads the same way on every page.
+
+`title` carries the reasons, so hovering answers "why 62%?" without a click —
+the score is only useful if it can be checked.
+{% endcomment %}
+<span class="prob" title="{% for label, points in row.reasons %}{{ label }}: {{ points }}&#10;{% endfor %}">
+  <span class="prob-track">
+    <i style="width:{{ row.bar_width }}%;background:{{ row.segment_obj.color }}"></i>
+  </span>
+  <b>{{ row.percent }}%</b>
+</span>

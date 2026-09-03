@@ -90,5 +90,20 @@ module.exports = {
       max_restarts: 10,
       restart_delay: 5000,
     },
+    {
+      // Django admin panel over the same Postgres (django_admin/). Independent
+      // of admin-api — run either, or both on their own ports.
+      // Needs `uv sync --extra panel` and one-time:
+      //   uv run --extra panel python django_admin/manage.py migrate
+      //   uv run --extra panel python django_admin/manage.py createsuperuser
+      name: "django-panel",
+      script: "./.venv/bin/django-panel",
+      cwd,
+      interpreter,
+      env,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+    },
   ],
 };

@@ -1,0 +1,5 @@
+# Server-local override: keep Postgres reachable only from this host.
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT:-54329}:5432"

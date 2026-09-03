@@ -1,0 +1,32 @@
+{% extends "admin/base_site.html" %}
+
+{% comment %}
+One conversation, in order. `conversation_events` stores one row per event,
+   so a changelist shows fragments newest-first; this is the view you want when
+   someone says the bot answered wrong.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div class="panel-filters">
+  <b>{{ thread_id }}</b>
+  {% if profile %}<span class="sub">{{ profile.name|default:"" }}{% if profile.username %} · @{{ profile.username }}{% endif %}</span>{% endif %}
+  <span class="sub">{{ events|length }} ta hodisa</span>
+  <span class="spacer"></span>
+  <a class="pill" href="{{ changelist_url }}">Jadval ko‘rinishi</a>
+</div>
+
+{% for e in events %}
+  <div class="tr-msg {{ e.role }}">
+    <div class="tr-head">
+      {{ e.role }}{% if e.agent %} · {{ e.agent }}{% endif %}{% if e.lang %} · {{ e.lang }}{% endif %}
+      · {{ e.created_at|date:"Y-m-d H:i:s" }} · #{{ e.id }}
+    </div>
+    <div class="tr-body">{{ e.text|default:"—" }}</div>
+    {% if e.meta %}<pre class="tr-json">{{ e.meta }}</pre>{% endif %}
+  </div>
+{% empty %}
+  <p class="chart-empty">Bu thread bo‘yicha hodisa topilmadi.</p>
+{% endfor %}
+{% endblock %}

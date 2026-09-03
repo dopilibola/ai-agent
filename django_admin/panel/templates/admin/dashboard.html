@@ -1,0 +1,112 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+The home page is a worklist, not a report: the first thing on it is the list of
+people to talk to today, ranked by how close they are to buying. The charts
+come after, because "how did the month go" is a question that can wait until
+after "who is about to buy and hasn't heard from us".
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<form class="panel-filters" method="get">{% include "admin/_filters.html" %}</form>
+{% include "admin/_evalnote.html" %}
+
+<div class="kpis">
+  {% for label, value, hint in kpis %}
+    <div class="kpi">
+      <div class="kpi-label">{{ label }}</div>
+      <div class="kpi-value">{{ value }}</div>
+      <div class="kpi-hint">{{ hint }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="card" style="margin-bottom:1.4rem">
+  <h3>Bugun gaplashish kerak</h3>
+  <div class="table-wrap">
+  <table class="panel-table">
+    <thead>
+      <tr>
+        <th>Kim</th>
+        <th style="width:9rem">Ehtimol</th>
+        <th>Kategoriya</th>
+        <th>Holati</th>
+        <th>Oxirgi faollik</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in hot_rows %}
+      <tr>
+        <td class="who">
+          <a href="{% url 'admin:user_detail' r.tenant_id r.chat_id %}">{{ r.label }}</a>
+          <div class="sub">{% if r.username %}@{{ r.username }} · {% endif %}{{ r.chat_id }}</div>
+        </td>
+        <td>{% include "admin/_prob.html" with row=r %}</td>
+        <td>
+          <span class="badge" style="background:{{ r.segment_obj.color }}">{{ r.segment_obj.label }}</span>
+          {% if r.muted_at %}<span class="badge" style="background:#b26b00">operator</span>{% endif %}
+        </td>
+        <td class="sub">
+          {% if r.lead_stage %}{{ r.lead_stage }}-bosqich{% else %}murojaat yo‘q{% endif %}
+          {% if r.answered_last %}<br><span class="ok">javob bergan</span>{% endif %}
+        </td>
+        <td class="sub">{{ r.last_seen|date:"d.m.Y H:i"|default:"—" }}</td>
+        <td class="num nowrap">
+          <a class="pill" href="{{ r.telegram_url }}" target="_blank" rel="noopener">Telegram</a>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">Hozircha faol mijoz yo‘q.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="card-foot"><a href="{% url 'admin:users' %}">Barcha mijozlar →</a></div>
+</div>
+
+<div class="panel-grid wide">
+  <div class="card">
+    <h3>Kategoriyalar</h3>
+    {{ segment_bar }}
+  </div>
+  <div class="card">
+    <h3>Voronka — faol murojaatlar</h3>
+    {{ funnel }}
+  </div>
+</div>
+
+<div class="panel-grid wide">
+  <div class="card">
+    <h3>Xabarlar — kuni bo‘yicha ({{ days }} kun)</h3>
+    {{ messages_chart }}
+    {% include "admin/_legend.html" %}
+  </div>
+  <div class="card">
+    <h3>To‘langan buyurtmalar ({{ days }} kun)</h3>
+    {{ revenue_chart }}
+    <div class="card-foot">
+      Jami: <b>{{ revenue_total|son }}</b> so‘m ·
+      <a href="{% url 'admin:analytics' %}">to‘liq tahlil →</a>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1.4rem">
+  <h3>Avto-xabarlar</h3>
+  <p class="sub" style="margin:.2rem 0 .6rem">
+    Navbatda <b>{{ queue.pending }}</b> ta,
+    shu haftada <b>{{ queue.sent_week }}</b> tasi yuborilgan{% if queue.failed %},
+    <b>{{ queue.failed }}</b> tasi xato bilan tugagan{% endif %}.
+  </p>
+  <a class="pill" href="{% url 'admin:outreach' %}">Boshqarish →</a>
+</div>
+
+<details class="tables-block">
+  <summary>Jadvallar (to‘g‘ridan-to‘g‘ri tahrirlash)</summary>
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</details>
+{% endblock %}

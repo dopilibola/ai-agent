@@ -1,0 +1,26 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% comment %}
+Adds the panel's stylesheet and its top navigation to every admin page —
+   including the stock model pages, so the panel reads as one product.
+{% endcomment %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | AI Sales{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+  <link rel="stylesheet" href="{% static 'panel/panel.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <div id="site-name"><a href="{% url 'admin:index' %}">AI Sales</a></div>
+{% endblock %}
+
+{% block nav-breadcrumbs %}
+  <nav class="panel-nav" aria-label="Panel navigatsiyasi">
+    {% for label, url in panel_nav %}
+      <a href="{{ url }}" {% if panel_path == url %}class="active"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {{ block.super }}
+{% endblock %}

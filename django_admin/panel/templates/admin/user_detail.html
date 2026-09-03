@@ -1,0 +1,228 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+One customer. The page is built around the two things an operator does here:
+read the conversation, then open it in Telegram and answer. Everything else —
+the score's reasons, the orders, the queued automatic messages — sits beside it
+so the decision can be made without leaving the page.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div class="panel-filters">
+  <a class="pill" href="{{ back }}">← ro‘yxatga</a>
+  <span class="who" style="font-size:1.1rem;font-weight:700">{{ row.label }}</span>
+  <span class="badge" style="background:{{ row.segment_obj.color }}">{{ row.segment_obj.label }}</span>
+  {% if row.muted_at %}<span class="badge" style="background:#b26b00">operator qo‘lida</span>{% endif %}
+  <span class="sub">
+    {% if row.username %}@{{ row.username }} · {% endif %}{{ row.chat_id }}
+    {% if row.phone %} · {{ row.phone }}{% endif %}
+  </span>
+  <span class="spacer"></span>
+
+  {% comment %}
+  The point of the page: a link that opens this exact conversation in Telegram.
+  `t.me/<username>` when the handle is known (works everywhere, web included),
+  otherwise the tg:// form, which only opens in the installed app.
+  {% endcomment %}
+  <a class="pill primary" href="{{ row.telegram_url }}" target="_blank" rel="noopener">
+    Telegramda ochish
+  </a>
+  <input class="copy-link" type="text" readonly value="{{ row.telegram_url }}"
+         onclick="this.select()" title="Havolani nusxalash uchun bosing">
+
+  {% if row.muted_at %}
+    <form method="post" action="{% url 'admin:chat_unmute' %}" style="margin:0">
+      {% csrf_token %}
+      <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
+      <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit">AI ni yoqish</button>
+    </form>
+  {% endif %}
+</div>
+
+{% comment %}
+The two things an operator does here that the bot cannot do for them. Kept at
+the top, next to the Telegram link, because they are the actions — everything
+below is information.
+{% endcomment %}
+<div class="panel-filters actions">
+  <form method="post" action="{% url 'admin:mark_purchased' %}" style="margin:0">
+    {% csrf_token %}
+    <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
+    <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% if purchased %}
+      <input type="hidden" name="purchased" value="0">
+      <button type="submit">↩ «Sotib olgan» belgisini olib tashlash</button>
+    {% else %}
+      <button type="submit" class="default">✓ Sotib olgan deb belgilash</button>
+    {% endif %}
+  </form>
+
+  <form method="post" action="{% url 'admin:schedule_followup' %}" class="followup">
+    {% csrf_token %}
+    <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
+    <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <select name="days" aria-label="Qachon">
+      {% for days, label in followup_options %}
+        <option value="{{ days }}" {% if days == 30 %}selected{% endif %}>{{ label }}dan keyin</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="note" maxlength="200"
+           placeholder="nima haqida yozilsin (ixtiyoriy)">
+    <button type="submit">Xabar yuborishni rejalashtirish</button>
+  </form>
+  <div class="sub" style="flex-basis:100%">
+    «Sotib olgan» belgisi kategoriyani o‘zgartiradi va rejadagi avto-xabarlarni
+    bekor qiladi; tushum hisobiga qo‘shilmaydi — u faqat haqiqiy to‘lovlardan
+    yig‘iladi. Rejalashtirilgan xabar matnini AI o‘sha payt mijozning tilida
+    yozadi, faqat ish soatlarida yuboriladi.
+  </div>
+</div>
+
+<div class="panel-grid split">
+  {% comment %} ---- left: the conversation ---- {% endcomment %}
+  <div class="card chat-card">
+    <h3>Suhbat
+      {% if conversation_trimmed %}
+        <span class="sub">— oxirgi {{ conversation|length }} tasi ({{ conversation_total }} tadan)</span>
+      {% endif %}
+    </h3>
+    <div class="chat">
+      {% for e in conversation %}
+        <div class="bubble {{ e.role }}">
+          <div class="bubble-head">{{ e.role|rol }} · {{ e.created_at|date:"d.m.Y H:i" }}</div>
+          <div class="bubble-body">{{ e.text|default:"—" }}</div>
+        </div>
+      {% empty %}
+        <p class="chart-empty">Bu chatda hali xabar yo‘q.</p>
+      {% endfor %}
+    </div>
+    <div class="card-foot sub">
+      <a href="{% url 'admin:conversation_thread' row.thread_id %}">To‘liq yozuv (vositalar bilan) →</a>
+    </div>
+  </div>
+
+  {% comment %} ---- right: why, and what happens next ---- {% endcomment %}
+  <div class="side">
+    <div class="card">
+      <h3>Sotib olish ehtimoli</h3>
+      <div class="prob big">
+        <span class="prob-track">
+          <i style="width:{{ row.bar_width }}%;background:{{ row.segment_obj.color }}"></i>
+        </span>
+        <b>{{ row.percent }}%</b>
+      </div>
+      <p class="sub" style="margin:.4rem 0 .6rem">{{ row.segment_obj.hint }}</p>
+      <table class="panel-table compact">
+        <tbody>
+        {% for label, points in row.reasons %}
+          <tr>
+            <td>{{ label }}</td>
+            <td class="num {% if points < 0 %}bad{% else %}ok{% endif %}">
+              {% if points > 0 %}+{% endif %}{{ points }}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Qisqacha</h3>
+      <table class="panel-table compact">
+        <tbody>
+          <tr><td>Yozgan</td><td class="num">{{ row.inbound }}</td></tr>
+          <tr><td>Yuborilgan</td><td class="num">{{ row.sent }}</td></tr>
+          <tr><td class="sub">— AI javobi</td><td class="num sub">{{ row.replies }}</td></tr>
+          <tr><td class="sub">— avto-xabar</td><td class="num sub">{{ row.touches }}</td></tr>
+          <tr><td class="sub">— operator</td><td class="num sub">{{ row.operator_msgs }}</td></tr>
+          <tr><td>Buyurtma</td><td class="num">{{ row.orders }} ({{ row.paid_orders }} to‘langan)</td></tr>
+          <tr><td>Tushum</td><td class="num">{{ row.revenue|pul }}</td></tr>
+          <tr><td>Birinchi</td><td class="num">{{ row.first_seen|date:"d.m.Y"|default:"—" }}</td></tr>
+          <tr><td>Oxirgi</td><td class="num">{{ row.last_seen|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+          {% if lead %}
+            <tr><td>Bosqich</td><td class="num">{{ lead.current_stage }} · {{ lead.status }}</td></tr>
+            {% if lead.grave_label %}
+              <tr><td>Qabr</td><td class="num">{{ lead.grave_label }}</td></tr>
+            {% endif %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Rejadagi avto-xabarlar</h3>
+      {% if queued %}
+        <table class="panel-table compact">
+          <tbody>
+          {% for t in queued %}
+            <tr>
+              <td>
+                {{ t.label }}
+                {% if t.to_operator %}<span class="sub">(operatorga)</span>{% endif %}
+                <div class="sub">{{ t.scheduled_for|date:"d.m.Y H:i" }}{% if t.waiting %} · kutmoqda{% endif %}</div>
+              </td>
+              <td class="num nowrap">
+                <form method="post" action="{% url 'admin:outreach_task' %}" style="display:inline;margin:0">
+                  {% csrf_token %}
+                  <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
+                  <input type="hidden" name="task_id" value="{{ t.task_id }}">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" name="action" value="cancel" class="link-btn">bekor</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="chart-empty">Rejada xabar yo‘q.</p>
+      {% endif %}
+      <form method="post" action="{% url 'admin:outreach_stop_chat' %}" class="card-foot">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
+        <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit">Bu mijozga avto-xabar yozilmasin</button>
+        <div class="sub" style="margin-top:.35rem">
+          O‘zi yozsa, AI baribir javob beradi — faqat biz birinchi bo‘lib yozmaymiz.
+        </div>
+      </form>
+    </div>
+
+    {% if orders or payments %}
+      <div class="card">
+        <h3>Buyurtma va to‘lovlar</h3>
+        <table class="panel-table compact">
+          <tbody>
+          {% for o in orders %}
+            <tr>
+              <td>
+                <a href="{% url 'admin:crm_maskanorder_change' o.id %}">#{{ o.id }}</a>
+                <span class="sub">{{ o.grave_label }}</span>
+                <div class="sub">{{ o.created_at|date:"d.m.Y" }} · {{ o.status }}</div>
+              </td>
+              <td class="num">{{ o.total|son }}</td>
+            </tr>
+          {% endfor %}
+          {% for p in payments %}
+            <tr>
+              <td class="sub">to‘lov #{{ p.id }} · {{ p.provider|default:"—" }}
+                <div class="sub">{{ p.created_at|date:"d.m.Y" }} · {{ p.state }}</div>
+              </td>
+              <td class="num sub">{{ p.amount_sum|son }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
