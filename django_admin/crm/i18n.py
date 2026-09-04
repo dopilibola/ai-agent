@@ -365,6 +365,11 @@ EN: dict[str, str] = {
     "Yopilgan deb belgilandi, rejadagi xabarlar bekor qilindi.":
         "Marked as closed; queued messages were cancelled.",
     "Faol holatga qaytarildi.": "Back to active.",
+    "{n} kundan keyin «bu oy ham parvarish qilaymizmi?» degan taklif avtomatik yuboriladi — kerak bo‘lmasa pastdan bekor qiling.":
+        "In {n} days an offer — “shall we look after it this month too?” — goes "
+        "out automatically; cancel it below if it is not wanted.",
+    "Bir oydan keyin: takroriy parvarish taklifi":
+        "A month later: offer to do it again",
     "Bu bo‘lim uchun rejalashtirish qo‘llab-quvvatlanmaydi.":
         "Scheduling is not supported for this section.",
     "shu vaqtda yoziladi, matnini AI mijozning tilida yozadi.":

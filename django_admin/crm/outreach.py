@@ -47,6 +47,7 @@ OPERATOR_SOURCE = "operator"
 ACTION_LABELS: dict[str, str] = {
     # operator-scheduled, every tenant
     "operator_followup": "Operator rejalashtirgan xabar",
+    "operator_repeat": "Bir oydan keyin: takroriy parvarish taklifi",
     # maskan
     "chat_followup1": "Jim qolganda birinchi eslatma",
     "chat_followup2": "Jim qolganda oxirgi eslatma",
@@ -106,7 +107,7 @@ OPERATOR_ACTIONS = frozenset(
     for k in ACTION_LABELS
     # `operator_followup` is the opposite case — scheduled *by* an operator and
     # addressed to the client — so it is excluded by name.
-    if k != "operator_followup"
+    if k not in ("operator_followup", "operator_repeat")
     and (k.startswith("bitrix_") or "operator" in k or k.endswith("_sla"))
 )
 
@@ -337,6 +338,64 @@ CLOSED_STATUS = "closed"   # apps/maskan/models.py::STATUS_CLOSED
 PURCHASED_NOTE = "Operator «sotib olgan» deb belgiladi"
 CLOSED_NOTE = "Operator yopdi"
 
+# Marking someone as bought arms one message a month out: "shall we do it again
+# this month?". Grave care is repeat work — the job is done and forgotten, and
+# a month later nobody remembers to ask. It is scheduled as an *operator*
+# message, because a person asserting the sale is what armed it, so it passes
+# the "the bot never writes first" switch; quiet hours still apply.
+REPEAT_AFTER_DAYS = 30
+REPEAT_ACTION = "operator_repeat"
+
+
+def _repeat_key(chat_id: int) -> str:
+    """One standing repeat offer per chat: `dedup_key` is unique, so marking a
+    client bought twice moves the same row rather than queuing two messages."""
+    return f"op:repeat:{int(chat_id)}"
+
+
+def schedule_repeat(tenant: str, chat_id: int):
+    """Arm (or re-arm) the month-later offer for one chat."""
+    from crm.models import MaskanLead
+
+    model = task_model(tenant)
+    if model is None:
+        return None
+    lead = (
+        MaskanLead.objects.filter(tenant_id=tenant, chat_id=chat_id)
+        .order_by("-id")
+        .first()
+    )
+    when = timezone.now() + timedelta(days=REPEAT_AFTER_DAYS)
+    task, _created = model.objects.update_or_create(
+        dedup_key=_repeat_key(chat_id),
+        defaults={
+            "tenant_id": tenant,
+            "lead_id": (lead.id if lead else 0),
+            "chat_id": chat_id,
+            "action_type": REPEAT_ACTION,
+            "stage": 0,
+            "payload": {"source": OPERATOR_SOURCE, "kind": "repeat"},
+            "scheduled_for": when,
+            "status": "pending",
+            "attempts": 0,
+            "last_error": None,
+            "created_at": timezone.now(),
+        },
+    )
+    return task
+
+
+def cancel_repeat(tenant: str, chat_id: int) -> int:
+    """Drop the month-later offer — used when the «sotib olgan» mark is taken
+    back. Only that one row: anything an operator scheduled by hand stays."""
+    model = task_model(tenant)
+    if model is None:
+        return 0
+    return int(
+        model.objects.filter(dedup_key=_repeat_key(chat_id), status="pending")
+        .update(status="cancelled")
+    )
+
 
 # The three states an operator may assert. The heat categories — «Juda yaqin»,
 # «Yaqin», «O‘ylayapti» — are deliberately *not* here: those are an estimate the
@@ -394,7 +453,10 @@ def set_state(tenant: str, chat_id: int, state: str, *, reason: str = "") -> boo
         # back to, and the score would keep reading the lead as paid.
         lead.status = PURCHASED_STATUS
         lead.close_reason = PURCHASED_NOTE
+        # Cancel first, then arm: the repeat must survive the clean-up that
+        # stops us chasing somebody who has already paid.
         cancel_for_chat(tenant, chat_id)
+        schedule_repeat(tenant, chat_id)
     elif state == CLOSED_STATUS:
         lead.status = CLOSED_STATUS
         lead.close_reason = (reason or CLOSED_NOTE)[:255]
@@ -403,6 +465,9 @@ def set_state(tenant: str, chat_id: int, state: str, *, reason: str = "") -> boo
         lead.status = ACTIVE_STATUS
         if lead.close_reason in (PURCHASED_NOTE, CLOSED_NOTE):
             lead.close_reason = ""
+        # The sale was taken back, so the "shall we do it again?" that came with
+        # it goes too. Anything scheduled by hand is left alone.
+        cancel_repeat(tenant, chat_id)
     lead.updated_at = timezone.now()
     lead.save(update_fields=["status", "close_reason", "updated_at"])
     return True

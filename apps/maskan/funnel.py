@@ -1191,8 +1191,33 @@ async def _exec_operator_followup(lead, task: MaskanScheduledTask) -> None:
     )
 
 
+async def _exec_operator_repeat(lead, task: MaskanScheduledTask) -> None:
+    """The repeat-care offer, armed a month back when somebody marked this
+    client as having bought.
+
+    Not the funnel writing on its own initiative — a person asserted a sale and
+    that assertion is what scheduled this — so it carries `source: operator` and
+    passes the "the bot never writes first" switch, subject to quiet hours.
+    """
+    fresh = await get_repository().get_latest_lead_by_chat(task.chat_id)
+    name = (fresh.name if fresh else "") or (lead.name if lead else "")
+    grave = (fresh.grave_label if fresh else "") or (lead.grave_label if lead else "")
+    whose = f"{grave} qabri" if grave else "qabr"
+    await _send_client_directed(
+        task.chat_id,
+        convey=(
+            "Bir oy oldin bu mijoz uchun parvarish qilingan edi. Iliq va bosiq "
+            f"eslatma yoz: oradan bir oy o'tdi, {whose} bu oy ham tartibga "
+            "keltirilsinmi deb so'ra. Bitta qisqa taklif — bosim qilma, "
+            "shoshirma va narx aytma."
+        ),
+        fallback=msg.s8_month_later(name, grave),
+    )
+
+
 ACTIONS = {
     "operator_followup": _exec_operator_followup,
+    "operator_repeat": _exec_operator_repeat,
     "chat_followup1": _exec_chat_followup1,
     "chat_followup2": _exec_chat_followup2,
     "s1_followup": _exec_s1_followup,

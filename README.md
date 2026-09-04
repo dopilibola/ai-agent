@@ -113,7 +113,9 @@ list are buckets of that percentage, not a separate taxonomy.
   here: a **category selector** — `faol / sotib olgan / yopilgan`, the two facts
   a person knows and the system cannot see; either terminal state cancels their
   queued messages, and neither invents an order, so revenue stays what the
-  payment providers confirmed and **«1 oydan keyin yozish»** (1 hafta /
+  payment providers confirmed. Marking someone as bought also queues one message
+  **30 days out** ("shall we look after it this month too?"), cancellable from
+  the same page and **«1 oydan keyin yozish»** (1 hafta /
   1 oy / 3 oy, with an optional note saying what to raise; the text itself is
   written by the agent at send time, in the client's language).
 - **Avto-xabarlar** (`/admin/outreach/`) — the automatic messages in one place:

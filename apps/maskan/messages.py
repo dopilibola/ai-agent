@@ -175,6 +175,22 @@ def s8_recurring(name: str, grave: str, freq: str) -> str:
     )
 
 
+def s8_month_later(name: str, grave: str) -> str:
+    """A month after a job was sold: would you like it done again?
+
+    Sent because a person marked the client as having bought, so it may assume
+    the work happened. Written as a small courtesy rather than a sales push —
+    the client is being asked whether they want it again, not told that they
+    should. No price: the catalogue is the only place a number may come from.
+    """
+    whose = f"{grave} qabrini" if grave else "qabrni"
+    return (
+        f"{_name_prefix(name)} O'tgan safar {whose} tartibga keltirgan edik, "
+        "oradan bir oy o'tdi. Bu oy ham parvarish qilib qo'yaylikmi? "
+        "Xohlasangiz, o'sha xizmatlar bilan davom ettiraveramiz."
+    )
+
+
 def s8_annual(name: str, grave: str) -> str:
     whose = f"{grave} qabri" if grave else "qabr"
     return (

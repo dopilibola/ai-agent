@@ -309,7 +309,12 @@ def set_state(request):
             t(
                 "«Sotib olgan» deb belgilandi. Rejadagi avto-xabarlar bekor qilindi. "
                 "Tushum hisobiga qo‘shilmaydi — u faqat haqiqiy to‘lovlardan yig‘iladi."
-            ),
+            )
+            + " "
+            + t(
+                "{n} kundan keyin «bu oy ham parvarish qilaymizmi?» degan taklif "
+                "avtomatik yuboriladi — kerak bo‘lmasa pastdan bekor qiling."
+            ).replace("{n}", str(out.REPEAT_AFTER_DAYS)),
         )
     elif state == out.CLOSED_STATUS:
         messages.success(
