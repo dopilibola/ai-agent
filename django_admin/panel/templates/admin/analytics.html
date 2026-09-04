@@ -2,68 +2,68 @@
 {% load panel_extras %}
 
 {% comment %}
-The trends page: message volume, money, funnel, the touch mix, and which
-   tools are failing — everything that needs a period rather than a row.
+The trends page: message volume, money, funnel, the automatic-message mix, and
+which tools are failing — everything that needs a period rather than a row.
 {% endcomment %}
 
 {% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
 
 {% block content %}
-<form class="panel-filters" method="get">{% include "admin/_filters.html" %}</form>
+<div class="page-head">
+  <h1>{% t "Tahlil" %}</h1>
+  <p>{% t "Bir davr ichida nima bo‘lgani — bitta mijoz emas, umumiy manzara." %}</p>
+</div>
+
+<form class="toolbar" method="get">{% include "admin/_filters.html" %}</form>
 {% include "admin/_evalnote.html" %}
 
-<div class="kpis">
-  <div class="kpi"><div class="kpi-label">Kelgan xabar</div><div class="kpi-value">{{ totals.inbound|son }}</div><div class="kpi-hint">mijozlardan, {{ days }} kun</div></div>
-  <div class="kpi"><div class="kpi-label">AI javobi</div><div class="kpi-value">{{ totals.replies|son }}</div><div class="kpi-hint">1 xabarga {{ reply_ratio|floatformat:2 }} javob</div></div>
-  <div class="kpi"><div class="kpi-label">Avto-xabar</div><div class="kpi-value">{{ totals.touches|son }}</div><div class="kpi-hint">so‘ralmagan xabarlar</div></div>
-  <div class="kpi"><div class="kpi-label">O‘rtacha yuborilgan</div><div class="kpi-value">{{ avg_sent|floatformat:1 }}</div><div class="kpi-hint">bitta chatga</div></div>
-  <div class="kpi"><div class="kpi-label">O‘rtacha yozgan</div><div class="kpi-value">{{ avg_inbound|floatformat:1 }}</div><div class="kpi-hint">javob bergan chatlar bo‘yicha</div></div>
-  <div class="kpi"><div class="kpi-label">Tushum</div><div class="kpi-value">{{ revenue_total|son }}</div><div class="kpi-hint">{{ orders_total }} to‘langan buyurtma</div></div>
+<div class="stats">
+  <div class="stat"><div class="stat-label">{% t "Kelgan xabar" %}</div><div class="stat-value">{{ totals.inbound|son }}</div><div class="stat-hint">{% t "mijozlardan," %} {{ days }} {% t "kun" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "AI javobi" %}</div><div class="stat-value">{{ totals.replies|son }}</div><div class="stat-hint">{{ reply_ratio|floatformat:2 }} {% t "1 xabarga" %} {% t "javob" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Avto-xabar" %}</div><div class="stat-value">{{ totals.touches|son }}</div><div class="stat-hint">{% t "so‘ralmagan xabarlar" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "O‘rtacha yozgan" %}</div><div class="stat-value">{{ avg_inbound|floatformat:1 }}</div><div class="stat-hint">{% t "javob bergan chatlar bo‘yicha" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Tushum" %}</div><div class="stat-value">{{ revenue_total|son }}</div><div class="stat-hint">{{ orders_total }} {% t "to‘langan buyurtma" %}</div></div>
 </div>
 
 <div class="card" style="margin-bottom:1.4rem">
-  <h3>Xabarlar oqimi ({{ days }} kun)</h3>
+  <h2>{% t "Xabarlar oqimi" %} <span class="muted">— {{ days }} {% t "kun" %}</span></h2>
   {{ messages_chart }}
   {% include "admin/_legend.html" %}
 </div>
 
-<div class="panel-grid wide">
-  <div class="card">
-    <h3>To‘langan buyurtmalar</h3>
-    {{ revenue_chart }}
-  </div>
-  <div class="card">
-    <h3>Kategoriyalar</h3>
-    {{ segment_bar }}
-  </div>
+<div class="grid two">
+  <div class="card"><h2>{% t "To‘langan buyurtmalar" %}</h2>{{ revenue_chart }}</div>
+  <div class="card"><h2>{% t "Kategoriyalar" %}</h2>{{ segment_bar }}</div>
 </div>
 
-<div class="panel-grid">
-  <div class="card"><h3>Voronka — faol murojaatlar</h3>{{ funnel }}</div>
-  <div class="card"><h3>Avto-xabar turlari</h3>{{ touch_mix }}</div>
-  <div class="card"><h3>Eng faol yozganlar</h3>{{ top_inbound }}</div>
-  <div class="card"><h3>Eng ko‘p to‘laganlar</h3>{{ top_revenue }}</div>
-  <div class="card">
-    <h3>Tool ishlashi ({{ days }} kun)</h3>
-    {% if tools %}
-      <div class="table-wrap">
-      <table class="panel-table">
-        <thead><tr><th>Tool</th><th class="num">Chaqiruv</th><th class="num">Xato</th><th class="num">%</th></tr></thead>
-        <tbody>
-        {% for t in tools %}
-          <tr>
-            <td>{{ t.tool }}</td>
-            <td class="num">{{ t.calls }}</td>
-            <td class="num">{{ t.failed }}</td>
-            <td class="num" {% if t.rate > 5 %}style="color:#a40e26;font-weight:700"{% endif %}>{{ t.rate|floatformat:1 }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      </div>
-    {% else %}
-      <p class="chart-empty">Bu davrda tool chaqiruvi yo‘q.</p>
-    {% endif %}
-  </div>
+<div class="grid two">
+  <div class="card"><h2>{% t "Voronka" %} <span class="muted">{% t "— faol murojaatlar" %}</span></h2>{{ funnel }}</div>
+  <div class="card"><h2>{% t "Avto-xabar turlari" %}</h2>{{ touch_mix }}</div>
+  <div class="card"><h2>{% t "Eng faol yozganlar" %}</h2>{{ top_inbound }}</div>
+  <div class="card"><h2>{% t "Eng ko‘p to‘laganlar" %}</h2>{{ top_revenue }}</div>
+</div>
+
+<div class="card flush">
+  <h2>{% t "Vositalar ishlashi" %} <span class="muted">— {{ days }} {% t "kun" %}</span></h2>
+  {% if tools %}
+    <div class="table-scroll">
+    <table class="table">
+      <thead><tr><th>{% t "Vosita" %}</th><th class="num">{% t "Chaqiruv" %}</th><th class="num">{% t "Xato" %}</th><th class="num">{% t "Xato ulushi" %}</th></tr></thead>
+      <tbody>
+      {% for t in tools %}
+        <tr>
+          <td class="who">{{ t.tool }}</td>
+          <td class="num">{{ t.calls }}</td>
+          <td class="num">{{ t.failed }}</td>
+          <td class="num {% if t.rate > 5 %}bad{% endif %}">{{ t.rate|floatformat:1 }}%</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% else %}
+    <p class="empty">{% t "Bu davrda vosita chaqiruvi yo‘q." %}</p>
+  {% endif %}
 </div>
 {% endblock %}

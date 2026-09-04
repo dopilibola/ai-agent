@@ -1,22 +1,30 @@
 {% extends "admin/base_site.html" %}
+{% load panel_extras %}
 
 {% comment %}
-One conversation, in order. `conversation_events` stores one row per event,
-   so a changelist shows fragments newest-first; this is the view you want when
-   someone says the bot answered wrong.
+One conversation, in order, tool calls included. `conversation_events` stores
+one row per event, so a changelist shows fragments newest-first; this is the
+view you want when someone says the bot answered wrong.
 {% endcomment %}
 
 {% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
 
 {% block content %}
-<div class="panel-filters">
-  <b>{{ thread_id }}</b>
-  {% if profile %}<span class="sub">{{ profile.name|default:"" }}{% if profile.username %} · @{{ profile.username }}{% endif %}</span>{% endif %}
-  <span class="sub">{{ events|length }} ta hodisa</span>
-  <span class="spacer"></span>
-  <a class="pill" href="{{ changelist_url }}">Jadval ko‘rinishi</a>
+<div class="page-head">
+  <h1>{% t "To‘liq yozuv" %}</h1>
+  <p>
+    {{ thread_id }}
+    {% if profile %} · {{ profile.name|default:"" }}{% if profile.username %} · @{{ profile.username }}{% endif %}{% endif %}
+    · {{ events|length }} {% t "ta hodisa" %}
+  </p>
 </div>
 
+<div class="toolbar">
+  <a class="btn small" href="{{ changelist_url }}">{% t "Jadval ko‘rinishi" %}</a>
+</div>
+
+<div class="card">
 {% for e in events %}
   <div class="tr-msg {{ e.role }}">
     <div class="tr-head">
@@ -27,6 +35,7 @@ One conversation, in order. `conversation_events` stores one row per event,
     {% if e.meta %}<pre class="tr-json">{{ e.meta }}</pre>{% endif %}
   </div>
 {% empty %}
-  <p class="chart-empty">Bu thread bo‘yicha hodisa topilmadi.</p>
+  <p class="empty">{% t "Bu suhbat bo‘yicha hodisa topilmadi." %}</p>
 {% endfor %}
+</div>
 {% endblock %}

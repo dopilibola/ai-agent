@@ -82,6 +82,9 @@ MIDDLEWARE = [
     # port behind nginx — no separate static-file location to keep in sync.
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # Between session and common, as Django requires: it needs the session to
+    # find the chosen language and must run before URLs are resolved.
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -154,8 +157,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# The panel's own copy is Uzbek, so Django's own strings should match.
+# The panel is bilingual. Uzbek is the default and the source language of the
+# panel's own copy (`crm/i18n.py`); Django's own strings — the login form, the
+# model-admin pages — switch through the catalogues it already ships for both.
 LANGUAGE_CODE = os.getenv("DJANGO_LANGUAGE_CODE", "uz")
+LANGUAGES = [("uz", "O‘zbekcha"), ("en", "English")]
+LANGUAGE_COOKIE_NAME = "ai_sales_panel_language"
 # The clinic/cemetery clocks the bots reason in — keep the panel on the same one
 # so a timestamp here matches what an operator saw in Telegram.
 TIME_ZONE = os.getenv("TZ_NAME", "Asia/Tashkent")

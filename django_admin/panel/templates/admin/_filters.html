@@ -1,15 +1,18 @@
-{# Shared filter bar: tenant + period. Pages add their own controls around it. #}
-<label for="f-tenant">Tenant</label>
-<select id="f-tenant" name="tenant" onchange="this.form.submit()">
-  <option value="">barchasi</option>
-  {% for t in tenants %}
-    <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
-  {% endfor %}
-</select>
+{% load panel_extras %}
+{% comment %}
+Period picker, plus the tenant selector only when there is more than one — a
+dropdown with a single option is furniture, not a control.
+{% endcomment %}
+{% if tenants|length > 1 %}
+  <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+    <option value="">{% t "barcha bo‘limlar" %}</option>
+    {% for t in tenants %}
+      <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+{% endif %}
 <span class="spacer"></span>
-<div class="pill-row">
-  {% for p in periods %}
-    <a class="pill {% if p == days %}active{% endif %}"
-       href="?{% if tenant %}tenant={{ tenant }}&{% endif %}days={{ p }}">{{ p }} kun</a>
-  {% endfor %}
-</div>
+{% for p in periods %}
+  <a class="btn small {% if p == days %}primary{% endif %}"
+     href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}days={{ p }}">{{ p }} {% t "kun" %}</a>
+{% endfor %}

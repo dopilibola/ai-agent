@@ -9,8 +9,8 @@ more pages that the model admin cannot express:
   tables Django cannot register (see ``crm/admin/shared.py``).
 * ``/admin/users/<tenant>/<chat_id>/`` — one customer: their conversation, why
   their score is what it is, a link that opens the same chat in Telegram, and
-  the two operator actions — mark them as having bought, and schedule one
-  message to them a month out.
+  the two operator actions — set the category (active / bought / closed) and
+  schedule one message to them a month out.
 * ``/admin/outreach/`` — the automatic messages: the pacing rules, the queue,
   and what actually went out.
 * ``/admin/prompts/`` — the agents' own rules, edited on disk; the bots re-read
@@ -50,9 +50,9 @@ class PanelAdminSite(admin.AdminSite):
                 name="user_detail",
             ),
             path(
-                "users/purchased/",
-                self.admin_view(views.mark_purchased),
-                name="mark_purchased",
+                "users/state/",
+                self.admin_view(views.set_state),
+                name="set_state",
             ),
             path(
                 "users/followup/",

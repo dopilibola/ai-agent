@@ -4,74 +4,75 @@
 {% comment %}
 The customer directory, ranked by how close each person is to buying.
 
-Deliberately few columns: who, the percentage, the category, whether they
-answered us, and when. Everything else is one click away on their own page —
-a directory that tries to show everything is a directory nobody scans.
+Deliberately few columns: who, the percentage, where they stand, and when they
+were last here. Everything else is one click away on their own page — a
+directory that tries to show everything is a directory nobody scans.
 {% endcomment %}
 
 {% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
 
 {% block content %}
-<form class="panel-filters" method="get">
+<div class="page-head">
+  <h1>{% t "Mijozlar" %}</h1>
+  <p>{% t "Sotib olish ehtimoli bo‘yicha saralangan. Ismga bosing — suhbati ochiladi." %}</p>
+</div>
+
+<form class="toolbar" method="get">
   {% if tenants|length > 1 %}
-    <select name="tenant" onchange="this.form.submit()" aria-label="Tenant">
-      <option value="">barcha bo‘limlar</option>
+    <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+      <option value="">{% t "barcha bo‘limlar" %}</option>
       {% for t in tenants %}
         <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
       {% endfor %}
     </select>
   {% endif %}
-
-  <select name="sort" onchange="this.form.submit()" aria-label="Saralash">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% t 'Ism, @username, telefon yoki id' %}">
+  <button type="submit" class="btn primary">{% t "Qidirish" %}</button>
+  <label for="f-sort">{% t "Saralash" %}</label>
+  <select id="f-sort" name="sort" onchange="this.form.submit()">
     {% for key, label in sorts %}
-      <option value="{{ key }}" {% if key == sort %}selected{% endif %}>{{ label }} bo‘yicha</option>
+      <option value="{{ key }}" {% if key == sort %}selected{% endif %}>{{ label|t }}</option>
     {% endfor %}
   </select>
-
-  <input type="search" name="q" value="{{ q }}" placeholder="ism, @username, telefon, chat_id">
-  <button type="submit" class="default">Qidirish</button>
   {% if segment %}<input type="hidden" name="segment" value="{{ segment }}">{% endif %}
   <span class="spacer"></span>
-  <a class="pill" href="{% url 'admin:users_csv' %}?{{ querystring }}">CSV</a>
+  <a class="btn small" href="{% url 'admin:users_csv' %}?{{ querystring }}">CSV</a>
 </form>
 {% include "admin/_evalnote.html" %}
 
-{% comment %} The categories double as the filter — one row of chips, always visible. {% endcomment %}
+{% comment %} The categories are the filter — one row, always visible. {% endcomment %}
 <div class="chips">
   <a class="chip {% if not segment %}active{% endif %}"
      href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}sort={{ sort }}">
-    Hammasi <b>{{ grand_total }}</b>
+    {% t "Hammasi" %} <b>{{ grand_total }}</b>
   </a>
-  {% comment %} An empty category is noise unless it is the one being viewed. {% endcomment %}
   {% for s, n in segment_counts %}{% if n or s.key == segment %}
-    <a class="chip {% if s.key == segment %}active{% endif %}"
-       title="{{ s.hint }}"
+    <a class="chip {% if s.key == segment %}active{% endif %}" title="{{ s.hint|t }}"
        href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}sort={{ sort }}&amp;segment={{ s.key }}">
-      <i style="background:{{ s.color }}"></i>{{ s.label }} <b>{{ n }}</b>
+      <i style="background:{{ s.color }}"></i>{{ s.label|t }} <b>{{ n }}</b>
     </a>
   {% endif %}{% endfor %}
   {% if operator_count %}
-    <a class="chip {% if segment == 'operator' %}active{% endif %}"
-       title="Odam javob berayotgan chatlar"
+    <a class="chip {% if segment == 'operator' %}active{% endif %}" title="{% t 'Odam javob berayotgan chatlar' %}"
        href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}sort={{ sort }}&amp;segment=operator">
-      <i style="background:#b26b00"></i>Operator qo‘lida <b>{{ operator_count }}</b>
+      <i style="background:#dc6803"></i>{% t "Operator qo‘lida" %} <b>{{ operator_count }}</b>
     </a>
   {% endif %}
 </div>
 
-<div class="card">
-  <h3>{{ total }} ta mijoz</h3>
-  <div class="table-wrap">
-  <table class="panel-table">
+<div class="card flush">
+  <h2>{{ total }} {% t "ta mijoz" %}</h2>
+  <div class="table-scroll">
+  <table class="table">
     <thead>
       <tr>
-        <th>Kim</th>
-        <th style="width:9rem">Sotib olish ehtimoli</th>
-        <th>Kategoriya</th>
-        <th>Holati</th>
-        <th class="num">Yozgan</th>
-        <th class="num">Yuborilgan</th>
-        <th>Oxirgi faollik</th>
+        <th>{% t "Kim" %}</th>
+        <th style="width:9rem">{% t "Sotib olish ehtimoli" %}</th>
+        <th>{% t "Kategoriya" %}</th>
+        <th>{% t "Holati" %}</th>
+        <th class="num">{% t "Yozishma" %}</th>
+        <th>{% t "Oxirgi faollik" %}</th>
         <th></th>
       </tr>
     </thead>
@@ -81,45 +82,47 @@ a directory that tries to show everything is a directory nobody scans.
         <td class="who">
           <a href="{% url 'admin:user_detail' r.tenant_id r.chat_id %}?back={{ request.get_full_path|urlencode }}">{{ r.label }}</a>
           <div class="sub">
-            {% if r.username %}@{{ r.username }} · {% endif %}{{ r.chat_id }}{% if r.phone %} · {{ r.phone }}{% endif %}
+            {% if r.username %}@{{ r.username }}{% else %}{{ r.chat_id }}{% endif %}{% if r.phone %} · {{ r.phone }}{% endif %}
           </div>
         </td>
         <td>{% include "admin/_prob.html" with row=r %}</td>
         <td>
-          <span class="badge" style="background:{{ r.segment_obj.color }}">{{ r.segment_obj.label }}</span>
-          {% if r.muted_at %}<span class="badge" style="background:#b26b00">operator</span>{% endif %}
+          <span class="badge" style="--c:{{ r.segment_obj.color }}"><i></i>{{ r.segment_obj.label|t }}</span>
+          {% if r.muted_at %}<span class="badge warn">{% t "operator" %}</span>{% endif %}
         </td>
         <td class="sub">
-          {% if r.lead_stage %}{{ r.lead_stage }}-bosqich{% else %}murojaat yo‘q{% endif %}
-          {% if r.orders %}<br>{{ r.orders }} buyurtma{% if r.revenue %} · {{ r.revenue|pul }}{% endif %}{% endif %}
+          {% if r.lead_stage %}{{ r.lead_stage|bosqich }}{% else %}{% t "murojaat ochilmagan" %}{% endif %}
+          {% if r.orders %}<br>{{ r.orders }} {% t "buyurtma" %}{% if r.revenue %} · {{ r.revenue|pul }}{% endif %}{% endif %}
         </td>
-        <td class="num">{{ r.inbound }}</td>
-        <td class="num">{{ r.sent }}</td>
+        <td class="num sub">{{ r.inbound }} / {{ r.sent }}</td>
         <td class="sub">
           {{ r.last_seen|date:"d.m.Y H:i"|default:"—" }}
-          {% if r.answered_last %}<br><span class="ok">javob bergan</span>{% endif %}
+          {% if r.answered_last %}<br><span class="good">{% t "javob bergan" %}</span>{% endif %}
         </td>
-        <td class="num nowrap">
-          <a class="pill" href="{{ r.telegram_url }}" target="_blank" rel="noopener">Telegram</a>
+        <td class="num">
+          <a class="btn small" href="{{ r.telegram_url }}" target="_blank" rel="noopener">Telegram</a>
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="8">Hech narsa topilmadi.</td></tr>
+      <tr><td colspan="7"><p class="empty">{% t "Hech narsa topilmadi." %}</p></td></tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
 
   {% if page.has_other_pages %}
-    <div class="pager">
+    <div class="pager" style="padding-bottom:1.1rem">
       {% if page.has_previous %}
-        <a class="pill" href="?{{ querystring }}&amp;page={{ page.previous_page_number }}">← oldingi</a>
+        <a class="btn small" href="?{{ querystring }}&amp;page={{ page.previous_page_number }}">← {% t "oldingi" %}</a>
       {% endif %}
       <span>{{ page.number }} / {{ page.paginator.num_pages }}</span>
       {% if page.has_next %}
-        <a class="pill" href="?{{ querystring }}&amp;page={{ page.next_page_number }}">keyingi →</a>
+        <a class="btn small" href="?{{ querystring }}&amp;page={{ page.next_page_number }}">{% t "keyingi" %} →</a>
       {% endif %}
     </div>
   {% endif %}
 </div>
+<p class="small muted" style="margin-top:.8rem">
+  {% t "«Yozishma» — mijoz yozgan / unga yuborilgan xabarlar soni." %}
+</p>
 {% endblock %}

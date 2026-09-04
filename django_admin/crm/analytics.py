@@ -214,7 +214,14 @@ def chat_rows(tenant: str = "", include_eval: bool = False) -> list[ChatRow]:
     # the others contribute leads only (byd) or nothing (oygul/anfa customers
     # are tracked by their own tables, which are not per-chat).
     if not tenant or tenant == "maskan":
-        for lead in MaskanLead.objects.all():
+        # Oldest first, so the newest lead is the one left standing. A chat can
+        # hold several: the funnel opens a fresh lead when a returning client
+        # writes after a closed deal. Everything else in the panel — the state
+        # selector, `set_state`, the runtime's `get_active_lead_by_chat` — takes
+        # the newest, and a row that disagreed would show a closed deal for a
+        # customer who is mid-conversation. (`Meta.ordering` is `-updated_at`,
+        # which without this leaves the *oldest* winning.)
+        for lead in MaskanLead.objects.order_by("id"):
             row = slot(lead.tenant_id, lead.chat_id)
             row.lead_stage = lead.current_stage
             row.lead_status = lead.status
@@ -430,10 +437,19 @@ def tool_health(tenant: str = "", days: int = 30) -> list[dict]:
 
 
 def tenants() -> list[str]:
+    """The tenants that actually have conversations.
+
+    `.order_by()` clears the model's default ordering first, and that is the
+    whole point: `ConversationEvent.Meta.ordering` puts `id` into the query, and
+    a DISTINCT over `(tenant_id, id)` is distinct per *row* — which is how the
+    tenant picker ended up listing "default" a few thousand times.
+    """
     from crm.models import ConversationEvent
 
     return sorted(
-        ConversationEvent.objects.values_list("tenant_id", flat=True).distinct()
+        ConversationEvent.objects.order_by()
+        .values_list("tenant_id", flat=True)
+        .distinct()
     )
 
 

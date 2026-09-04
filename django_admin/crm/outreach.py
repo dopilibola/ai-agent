@@ -333,23 +333,53 @@ def cancel_for_chat(tenant: str, chat_id: int) -> int:
 
 PURCHASED_STATUS = "won"
 ACTIVE_STATUS = "active"
-PURCHASED_STAGE = 5  # apps/maskan/models.py::STAGE_ORDERED
+CLOSED_STATUS = "closed"   # apps/maskan/models.py::STATUS_CLOSED
 PURCHASED_NOTE = "Operator «sotib olgan» deb belgiladi"
+CLOSED_NOTE = "Operator yopdi"
 
 
-def mark_purchased(tenant: str, chat_id: int, *, purchased: bool = True) -> bool:
-    """Flip a chat's lead between «sotib olgan» and «faol».
+# The three states an operator may assert. The heat categories — «Juda yaqin»,
+# «Yaqin», «O‘ylayapti» — are deliberately *not* here: those are an estimate the
+# score computes, and hand-setting an estimate would only make it untrue. What a
+# person knows and the system cannot see is the two terminal facts: they bought,
+# or the deal is dead.
+MANUAL_STATES: tuple[tuple[str, str, str], ...] = (
+    (ACTIVE_STATUS, "Faol", "Ehtimol o‘zi hisoblanadi"),
+    (PURCHASED_STATUS, "Sotib olgan", "To‘lagan yoki kelishilgan"),
+    (CLOSED_STATUS, "Yopilgan", "Rad etgan yoki keraksiz"),
+)
+MANUAL_STATE_KEYS = {key for key, _l, _h in MANUAL_STATES}
+
+
+def current_state(tenant: str, chat_id: int) -> str:
+    from crm.models import MaskanLead
+
+    status = (
+        MaskanLead.objects.filter(tenant_id=tenant, chat_id=chat_id)
+        .order_by("-id")
+        .values_list("status", flat=True)
+        .first()
+    )
+    return status if status in MANUAL_STATE_KEYS else ACTIVE_STATUS
+
+
+def set_state(tenant: str, chat_id: int, state: str, *, reason: str = "") -> bool:
+    """Move a chat between «faol», «sotib olgan» and «yopilgan».
 
     Writes the *lead*, never an order or a payment: an operator asserting a sale
     is a fact about the relationship, and inventing a paid order would put money
-    the system never saw into the revenue figures. The score reads the status
-    and shows 100%; the revenue column stays honest.
+    the system never saw into the revenue figures. The score reads the status —
+    100% for a sale, 0% for a closed deal — while the revenue column stays what
+    the payment providers actually confirmed.
 
-    Marking someone as bought also clears their queued automatic messages —
-    chasing a customer who already paid is the most annoying thing a funnel does.
+    Either terminal state also clears the chat's queued messages: chasing
+    somebody who already bought, or who already said no, is the most annoying
+    thing a funnel does.
     """
     from crm.models import MaskanLead
 
+    if state not in MANUAL_STATE_KEYS:
+        return False
     lead = (
         MaskanLead.objects.filter(tenant_id=tenant, chat_id=chat_id)
         .order_by("-id")
@@ -357,31 +387,25 @@ def mark_purchased(tenant: str, chat_id: int, *, purchased: bool = True) -> bool
     )
     if lead is None:
         return False
-    now = timezone.now()
-    if purchased:
+    if state == PURCHASED_STATUS:
+        # Only the status. The stage is the funnel's own record of how far the
+        # conversation actually got, and moving it would make this change
+        # irreversible: reverting to «faol» could not know which stage to go
+        # back to, and the score would keep reading the lead as paid.
         lead.status = PURCHASED_STATUS
-        lead.current_stage = max(lead.current_stage or 0, PURCHASED_STAGE)
         lead.close_reason = PURCHASED_NOTE
+        cancel_for_chat(tenant, chat_id)
+    elif state == CLOSED_STATUS:
+        lead.status = CLOSED_STATUS
+        lead.close_reason = (reason or CLOSED_NOTE)[:255]
         cancel_for_chat(tenant, chat_id)
     else:
         lead.status = ACTIVE_STATUS
-        if lead.close_reason == PURCHASED_NOTE:
+        if lead.close_reason in (PURCHASED_NOTE, CLOSED_NOTE):
             lead.close_reason = ""
-    lead.updated_at = now
-    lead.save(
-        update_fields=["status", "current_stage", "close_reason", "updated_at"]
-    )
+    lead.updated_at = timezone.now()
+    lead.save(update_fields=["status", "close_reason", "updated_at"])
     return True
-
-
-def is_purchased(tenant: str, chat_id: int) -> bool:
-    from crm.models import MaskanLead
-
-    return (
-        MaskanLead.objects.filter(
-            tenant_id=tenant, chat_id=chat_id, status=PURCHASED_STATUS
-        ).exists()
-    )
 
 
 def schedule_followup(

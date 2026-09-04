@@ -72,3 +72,40 @@ def dictkey(mapping, key):
         return mapping.get(key, "")
     except AttributeError:
         return ""
+
+
+@register.simple_tag(name="t")
+def translate_literal(text) -> str:
+    """`{% t "Mijozlar" %}` — the panel's own two-language copy.
+
+    Uzbek is the source string, so an untranslated phrase still reads correctly;
+    see `crm/i18n.py` for why this is a table rather than gettext.
+    """
+    from crm.i18n import t as _t
+
+    return _t(text)
+
+
+@register.filter(name="t")
+def translate_value(value) -> str:
+    """`{{ row.segment_obj.label|t }}` — same table, for strings that come from
+    Python rather than from the template."""
+    from crm.i18n import t as _t
+
+    return _t(value)
+
+
+@register.filter(name="bosqich")
+def bosqich(value) -> str:
+    """`{{ r.lead_stage|bosqich }}` → "4-bosqich" / "stage 4".
+
+    A filter rather than two template strings because the number sits on a
+    different side of the word in each language, and "4 — stage" is what you get
+    when you translate the two halves separately.
+    """
+    from crm.i18n import t as _t
+
+    if value in (None, ""):
+        return ""
+    word = _t("bosqich")
+    return f"stage {value}" if word == "stage" else f"{value}-{word}"

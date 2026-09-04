@@ -43,12 +43,12 @@ class Bucket:
 
 # Ordered hottest first — the order the legend and the filter show them in.
 BUCKETS: tuple[Bucket, ...] = (
-    Bucket("mijoz", "Sotib olgan", "To‘lovi o‘tgan — endi xizmat ko‘rsatiladi", "#1a7f37", -1),
-    Bucket("issiq", "Juda yaqin", "Narx aytilgan, javob beryapti — bugun gaplashing", "#d1341f", 65),
-    Bucket("iliq", "Yaqin", "Qiziqyapti, hali qaror qilmagan", "#e08b00", 40),
-    Bucket("sovuq", "O‘ylayapti", "Boshlagan, lekin sust", "#2b7de9", 15),
-    Bucket("muz", "Uzoq", "Deyarli yo‘q — o‘zi yozsa javob beramiz", "#8a8a8a", 0),
-    Bucket("yopilgan", "Yopilgan", "Rad etgan yoki «yozmang» degan", "#6b6b6b", -1),
+    Bucket("mijoz", "Sotib olgan", "To‘lovi o‘tgan — endi xizmat ko‘rsatiladi", "#12b76a", -1),
+    Bucket("issiq", "Juda yaqin", "Narx aytilgan, javob beryapti — bugun gaplashing", "#f04438", 65),
+    Bucket("iliq", "Yaqin", "Qiziqyapti, hali qaror qilmagan", "#f79009", 40),
+    Bucket("sovuq", "O‘ylayapti", "Boshlagan, lekin sust", "#2563eb", 15),
+    Bucket("muz", "Uzoq", "Deyarli yo‘q — o‘zi yozsa javob beramiz", "#98a2b1", 0),
+    Bucket("yopilgan", "Yopilgan", "Rad etgan yoki «yozmang» degan", "#667085", -1),
 )
 BUCKET_BY_KEY = {b.key: b for b in BUCKETS}
 

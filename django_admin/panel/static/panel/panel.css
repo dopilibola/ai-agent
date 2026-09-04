@@ -1,328 +1,549 @@
-/* Panel styling.
+/* AI Sales panel — light theme.
  *
- * Built on the admin's own CSS variables (--body-bg, --hairline-color,
- * --primary, …) rather than fixed colours, so every page here follows the
- * user's light/dark choice along with the rest of the admin. Only the
- * categorical colours — the segment and message-direction hues — are fixed,
- * and those are picked to stay legible on both themes.
+ * Two jobs. The first is to force the admin light: Django ships a dark palette
+ * that follows the operating system, and this panel is read in daylight by
+ * people who are not developers, so the theme is not theirs to choose. The
+ * variables below are redefined for every `data-theme` value, and again inside
+ * the dark media query, because that is where Django sets its own.
+ *
+ * The second is a small design system — surface, border, ink, accent — used by
+ * the panel's own pages. Component rules are scoped to panel classes so the
+ * stock model-admin pages keep working; only the variables, the page background
+ * and the type scale are global.
  */
 
+/* =================================================== force the light palette */
+
+html,
+html[data-theme="auto"],
+html[data-theme="light"],
+html[data-theme="dark"],
 :root {
-  --panel-radius: 10px;
-  --panel-gap: 1rem;
-  --panel-card-bg: var(--body-bg);
-  --panel-line: var(--hairline-color, #e4e4e4);
+  color-scheme: light;
+
+  /* --- the panel's own tokens --- */
+  --ink: #101828;          /* headings, numbers — the thing you read */
+  --ink-2: #475467;        /* body text */
+  --ink-3: #98a2b1;        /* labels, hints, timestamps */
+  --surface: #ffffff;      /* cards */
+  --page: #f6f7f9;         /* the page behind them */
+  --line: #e4e7ec;         /* every border */
+  --line-soft: #f0f1f4;
+  --accent: #2563eb;
+  --accent-soft: #eef4ff;
+  --good: #067647;
+  --warn: #b54708;
+  --bad: #b42318;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  --shadow-lift: 0 4px 12px rgba(16, 24, 40, .07);
+
+  /* --- Django admin's own variables, remapped onto the above --- */
+  --primary: var(--accent);
+  --secondary: var(--accent);
+  --accent-color: var(--accent);
+  --primary-fg: #fff;
+  --body-fg: var(--ink-2);
+  --body-bg: var(--surface);
+  --body-quiet-color: var(--ink-3);
+  --body-medium-color: var(--ink-2);
+  --body-loud-color: var(--ink);
+  --header-color: #fff;
+  --header-branding-color: #fff;
+  --header-bg: var(--surface);
+  --header-link-color: var(--ink);
+  --breadcrumbs-fg: var(--ink-3);
+  --breadcrumbs-link-fg: var(--ink-2);
+  --breadcrumbs-bg: var(--page);
+  --link-fg: var(--accent);
+  --link-hover-color: #1d4ed8;
+  --link-selected-fg: var(--accent);
+  --hairline-color: var(--line);
+  --border-color: var(--line);
+  --error-fg: var(--bad);
+  --darkened-bg: var(--page);
+  --selected-bg: var(--accent-soft);
+  --selected-row: var(--accent-soft);
+  --button-fg: #fff;
+  --button-bg: var(--accent);
+  --button-hover-bg: #1d4ed8;
+  --default-button-bg: var(--accent);
+  --default-button-hover-bg: #1d4ed8;
+  --close-button-bg: #667085;
+  --close-button-hover-bg: #475467;
+  --delete-button-bg: var(--bad);
+  --delete-button-hover-bg: #912018;
+  --message-success-bg: #ecfdf3;
+  --message-warning-bg: #fffaeb;
+  --message-error-bg: #fef3f2;
+  --message-info-bg: var(--accent-soft);
 }
 
-/* ---------------------------------------------------------------- nav */
+@media (prefers-color-scheme: dark) {
+  html,
+  html[data-theme="auto"],
+  :root {
+    color-scheme: light;
+    --body-bg: #ffffff;
+    --body-fg: #475467;
+    --body-loud-color: #101828;
+    --body-quiet-color: #98a2b1;
+    --darkened-bg: #f6f7f9;
+    --hairline-color: #e4e7ec;
+    --border-color: #e4e7ec;
+    --header-bg: #ffffff;
+    --header-link-color: #101828;
+    --breadcrumbs-bg: #f6f7f9;
+    --breadcrumbs-fg: #98a2b1;
+    --breadcrumbs-link-fg: #475467;
+    --selected-bg: #eef4ff;
+    --selected-row: #eef4ff;
+  }
+}
 
-.panel-nav {
+/* ================================================================ the shell */
+
+/* Django underlines every link outside its own chrome with
+ * `a:not([role="button"], #header a, …)`. Because `:not()` takes the
+ * specificity of its most specific argument, that rule counts as (1,0,1) — an
+ * id — so no class of ours can outrank it. `!important`, scoped to the panel's
+ * own components, is the honest way to say "not here": in a table of names and
+ * a row of buttons an underline is noise, not affordance. Links inside prose
+ * keep theirs. */
+.table a, .btn, .chip, .tabs a, .brand, .topbar-user a, .stat a, .msg-head a {
+  text-decoration: none !important;
+}
+.table a:hover, .card-foot a:hover, .note a:hover, .msg-head a:hover {
+  text-decoration: underline !important;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+#container { background: var(--page); }
+#content { padding: 1.6rem 2rem 3rem; max-width: 1500px; margin: 0 auto; }
+#content-main { width: 100%; }
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.topbar-in {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 0 2rem;
   display: flex;
-  gap: .25rem;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 60px;
   flex-wrap: wrap;
-  padding: .5rem 2.5rem 0;
-  background: var(--body-bg);
-  border-bottom: 1px solid var(--panel-line);
 }
-.panel-nav a {
-  padding: .5rem .85rem;
-  border-radius: 6px 6px 0 0;
-  font-size: .88rem;
-  font-weight: 500;
-  color: var(--body-quiet-color, #666);
+.brand {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
   text-decoration: none;
-  border-bottom: 2px solid transparent;
+  letter-spacing: -.01em;
+  white-space: nowrap;
 }
-.panel-nav a:hover { color: var(--link-fg); background: var(--darkened-bg, rgba(127,127,127,.06)); }
-.panel-nav a.active {
-  color: var(--body-loud-color, #111);
-  border-bottom-color: var(--primary, #417690);
-}
+.brand span { color: var(--accent); }
 
-/* --------------------------------------------------------------- cards */
-
-.panel-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
-  gap: var(--panel-gap);
-  margin-bottom: 1.4rem;
+.tabs { display: flex; gap: .15rem; flex: 1; flex-wrap: wrap; }
+.tabs a {
+  padding: .45rem .7rem;
+  border-radius: 8px;
+  font-size: .92rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  white-space: nowrap;
 }
-.panel-grid.wide { grid-template-columns: repeat(auto-fill, minmax(31rem, 1fr)); }
+.tabs a:hover { background: var(--page); color: var(--ink); }
+.tabs a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.topbar-user { display: flex; align-items: center; gap: .8rem; font-size: .85rem; color: var(--ink-3); }
+.topbar-user a { color: var(--ink-2); text-decoration: none; }
+.topbar-user a:hover { color: var(--accent); text-decoration: underline; }
+
+/* ------------------------------------------------------------ page heading */
+
+.page-head { margin: 0 0 1.3rem; }
+.page-head h1 {
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.02em;
+  margin: 0;
+}
+.page-head p { margin: .25rem 0 0; color: var(--ink-3); font-size: .93rem; }
+
+/* Django sets its own h1 on model pages; keep it in the same voice. */
+#content h1 { font-size: 1.45rem; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+
+/* ================================================================== layout */
+
+.grid { display: grid; gap: 1rem; margin-bottom: 1.4rem; }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr)); }
+.grid.split { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
+.stack { display: grid; gap: 1rem; align-content: start; }
 
 .card {
-  background: var(--panel-card-bg);
-  border: 1px solid var(--panel-line);
-  border-radius: var(--panel-radius);
-  padding: 1rem 1.15rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.15rem 1.25rem;
   min-width: 0;
 }
-.card h3 {
-  margin: 0 0 .5rem;
-  font-size: .74rem;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--body-quiet-color, #777);
+.card > h2 {
+  margin: 0 0 .9rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: -.01em;
 }
-.card .card-foot { margin-top: .7rem; font-size: .82rem; }
-.card-err { font-size: .8rem; color: var(--error-fg, #ba2121); word-break: break-word; }
-
-/* KPI row */
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: .75rem;
-  margin-bottom: 1.4rem;
+.card > h2 .muted { font-weight: 400; color: var(--ink-3); font-size: .88rem; }
+.card-foot {
+  margin-top: .9rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: .88rem;
 }
-.kpi {
-  background: var(--panel-card-bg);
-  border: 1px solid var(--panel-line);
-  border-radius: var(--panel-radius);
-  padding: .8rem .95rem;
-}
-.kpi .kpi-label {
-  font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--body-quiet-color, #777); font-weight: 600;
-}
-.kpi .kpi-value {
-  font-size: 1.75rem; font-weight: 700; line-height: 1.15;
-  font-variant-numeric: tabular-nums; margin-top: .15rem;
-  color: var(--body-loud-color, #111);
-}
-.kpi .kpi-hint { font-size: .76rem; color: var(--body-quiet-color, #888); margin-top: .1rem; }
+.card.flush { padding: 0; overflow: hidden; }
+.card.flush > h2 { padding: 1.15rem 1.25rem 0; margin-bottom: .6rem; }
+.card.flush .card-foot { padding: .8rem 1.25rem 1.1rem; margin-top: 0; }
 
-/* -------------------------------------------------------------- charts */
-
-.chart { width: 100%; height: auto; display: block; }
-.chart-empty { color: var(--body-quiet-color, #888); font-size: .85rem; margin: .8rem 0; }
-.spark { width: 7rem; height: 1.6rem; vertical-align: middle; }
-
-.chart-legend { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .8rem; margin-top: .5rem; }
-.chart-legend span { display: inline-flex; align-items: center; gap: .35rem; }
-.chart-legend i { width: .7rem; height: .7rem; border-radius: 2px; display: inline-block; }
-
-.hbars { display: grid; gap: .3rem; }
-.hbar-row { display: grid; grid-template-columns: minmax(6rem, 11rem) 1fr auto; gap: .6rem;
-            align-items: center; font-size: .84rem; }
-.hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-              color: var(--body-quiet-color, #666); }
-.hbar-track { background: var(--darkened-bg, rgba(127,127,127,.12)); border-radius: 4px; height: .95rem; }
-.hbar-fill { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
-.hbar-value { font-variant-numeric: tabular-nums; font-weight: 600; }
-
-/* ------------------------------------------------------------ segments */
-
-.seg-bar {
-  display: flex; height: 1.5rem; border-radius: 6px; overflow: hidden;
-  background: var(--darkened-bg, rgba(127,127,127,.1));
-}
-.seg-cell { display: block; height: 100%; }
-.seg-legend { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
-.seg-legend-item {
-  display: inline-flex; align-items: center; gap: .4rem;
-  border: 1px solid var(--panel-line); border-radius: 999px;
-  padding: .18rem .6rem; font-size: .8rem; text-decoration: none;
-  color: var(--body-fg);
-}
-.seg-legend-item:hover { border-color: var(--primary, #417690); }
-.seg-legend-item i { width: .6rem; height: .6rem; border-radius: 50%; }
-.seg-legend-item b { font-variant-numeric: tabular-nums; }
-
-.badge {
-  display: inline-block; padding: .1rem .55rem; border-radius: 999px;
-  font-size: .74rem; font-weight: 600; color: #fff; white-space: nowrap;
-}
-
-/* --------------------------------------------------------------- table */
-
-.panel-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
-.panel-table th {
-  text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--body-quiet-color, #777); padding: .5rem .55rem;
-  border-bottom: 1px solid var(--panel-line); white-space: nowrap;
-}
-.panel-table td { padding: .5rem .55rem; border-bottom: 1px solid var(--panel-line); vertical-align: middle; }
-.panel-table tbody tr:hover { background: var(--darkened-bg, rgba(127,127,127,.05)); }
-.panel-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.panel-table .who { font-weight: 600; }
-.panel-table .sub { color: var(--body-quiet-color, #888); font-weight: 400; font-size: .8rem; }
-.table-wrap { overflow-x: auto; }
-
-/* split bar showing how a chat's outbound breaks down */
-.mix { display: inline-flex; height: .5rem; width: 4.5rem; border-radius: 3px;
-       overflow: hidden; background: var(--darkened-bg, rgba(127,127,127,.15)); vertical-align: middle; }
-.mix i { display: block; height: 100%; }
-
-/* --------------------------------------------------------------- forms */
-
-.panel-filters {
-  display: flex; gap: .55rem; align-items: center; flex-wrap: wrap;
-  margin-bottom: 1rem; padding: .75rem .9rem;
-  background: var(--panel-card-bg); border: 1px solid var(--panel-line);
-  border-radius: var(--panel-radius);
-}
-.panel-filters label { font-size: .8rem; color: var(--body-quiet-color, #777); }
-.panel-filters select, .panel-filters input[type="search"] { margin: 0; }
-.panel-filters .spacer { flex: 1; }
-.pill-row { display: flex; gap: .3rem; flex-wrap: wrap; }
-.pill {
-  border: 1px solid var(--panel-line); border-radius: 999px;
-  padding: .2rem .7rem; font-size: .8rem; text-decoration: none; color: var(--body-fg);
-}
-.pill.active { background: var(--primary, #417690); border-color: var(--primary, #417690); color: #fff; }
-
-.pager { display: flex; gap: .5rem; align-items: center; margin-top: 1rem; font-size: .85rem; }
-
-/* ---------------------------------------------------------- transcript */
-
-.tr-msg {
-  border-left: 3px solid var(--panel-line); padding: .55rem .85rem; margin: .5rem 0;
-  border-radius: 0 8px 8px 0; background: var(--darkened-bg, rgba(127,127,127,.05));
-}
-.tr-msg.user { border-color: #2b7de9; }
-.tr-msg.assistant { border-color: #1a7f37; }
-.tr-msg.operator { border-color: #b26b00; }
-.tr-msg.tool { border-color: #8a8a8a; font-size: .85rem; }
-.tr-msg.outbound { border-color: #7d4fd1; }
-.tr-msg.outcome { border-color: #a40e26; font-size: .85rem; }
-.tr-head {
-  font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--body-quiet-color, #888); margin-bottom: .25rem;
-}
-.tr-body { white-space: pre-wrap; word-break: break-word; }
-.tr-json {
-  font-size: .76rem; color: var(--body-quiet-color, #888); white-space: pre-wrap;
-  margin: .35rem 0 0; max-height: 12em; overflow: auto;
-}
-
-@media (max-width: 767px) {
-  .panel-nav { padding-inline: 1rem; }
-  .hbar-row { grid-template-columns: minmax(5rem, 8rem) 1fr auto; }
-}
-
-/* The eval-filter note. Visible but quiet: it reports a filter, not an error. */
-.eval-note {
-  font-size: .83rem;
-  color: var(--body-quiet-color, #888);
-  margin: -.5rem 0 1rem;
-  padding: .45rem .8rem;
-  border: 1px dashed var(--panel-line);
-  border-radius: 8px;
-}
-.eval-note.warn { border-style: solid; border-color: #b26b00; color: #b26b00; }
-
-/* ------------------------------------------------- buy probability */
-
-/* The panel's central number. A bar plus the figure, because a percentage in a
- * table of percentages is unreadable without something to compare it against. */
-.prob { display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
-.prob-track {
-  display: inline-block; width: 5.5rem; height: .55rem; border-radius: 4px;
-  background: var(--darkened-bg, rgba(127,127,127,.15)); overflow: hidden;
-}
-.prob-track i { display: block; height: 100%; border-radius: 4px; }
-.prob b { font-variant-numeric: tabular-nums; font-size: .9rem; min-width: 2.5rem; }
-.prob.big .prob-track { width: 100%; height: .8rem; }
-.prob.big { display: flex; }
-.prob.big b { font-size: 1.4rem; min-width: 3.6rem; text-align: right; }
-
-.ok { color: #1a7f37; }
-.bad { color: #a40e26; }
-.warn-txt { color: #b26b00; }
+.muted { color: var(--ink-3); }
+.small { font-size: .86rem; }
+.good { color: var(--good); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
 .nowrap { white-space: nowrap; }
 
-/* -------------------------------------------------- category chips */
+/* =================================================================== stats */
 
-/* The categories are the filter: one always-visible row, so switching between
- * "who is close to buying" and "who went quiet" is a single click. */
-.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; margin-bottom: 1.4rem; }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.15rem;
+}
+.stat-label { font-size: .85rem; color: var(--ink-3); font-weight: 500; }
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.15;
+  margin-top: .15rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.stat-hint { font-size: .84rem; color: var(--ink-3); margin-top: .1rem; }
+
+/* ================================================================== tables */
+
+.table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.table th {
+  text-align: left;
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--ink-3);
+  padding: .6rem .75rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--surface);
+}
+.table td {
+  padding: .8rem .75rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+  color: var(--ink-2);
+}
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover { background: #fafbfc; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table .who { color: var(--ink); font-weight: 600; }
+.table .who a { color: var(--ink); text-decoration: none; }
+.table .who a:hover { color: var(--accent); text-decoration: underline; }
+.table .sub { color: var(--ink-3); font-weight: 400; font-size: .84rem; }
+.table.compact td { padding: .45rem .5rem; font-size: .88rem; }
+.table.compact tbody tr:hover { background: transparent; }
+.table-scroll { overflow-x: auto; }
+.card.flush .table th:first-child,
+.card.flush .table td:first-child { padding-left: 1.25rem; }
+.card.flush .table th:last-child,
+.card.flush .table td:last-child { padding-right: 1.25rem; }
+
+.empty { color: var(--ink-3); font-size: .92rem; padding: 1.2rem 0; text-align: center; }
+
+/* ============================================================ buy probability */
+
+.prob { display: inline-flex; align-items: center; gap: .6rem; white-space: nowrap; }
+.prob-track {
+  display: inline-block;
+  width: 4.5rem;
+  height: .4rem;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+.prob-track i { display: block; height: 100%; border-radius: 99px; }
+.prob b { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--ink); min-width: 2.6rem; }
+.prob.big { display: flex; gap: .8rem; align-items: baseline; }
+.prob.big .prob-track { flex: 1; height: .6rem; align-self: center; }
+.prob.big b { font-size: 2rem; letter-spacing: -.02em; min-width: 0; }
+
+/* ================================================================= badges */
+
+/* Soft tint of the category colour rather than a solid pill: on white, a row of
+ * saturated pills is the first thing that makes a table feel loud. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .18rem .55rem;
+  border-radius: 99px;
+  font-size: .82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #f2f4f7;
+  color: #344054;
+  border: 1px solid #e4e7ec;
+}
+.badge[style*="--c"] {
+  background: color-mix(in srgb, var(--c) 10%, #fff);
+  border-color: color-mix(in srgb, var(--c) 26%, #fff);
+  color: color-mix(in srgb, var(--c) 78%, #101828);
+}
+.badge i { width: .45rem; height: .45rem; border-radius: 50%; background: var(--c, currentColor); }
+.badge.plain { background: #f2f4f7; color: #475467; border-color: #e4e7ec; }
+.badge.ok { background: #ecfdf3; color: var(--good); border-color: #abefc6; }
+.badge.warn { background: #fffaeb; color: var(--warn); border-color: #fedf89; }
+.badge.bad { background: #fef3f2; color: var(--bad); border-color: #fecdca; }
+
+/* ================================================================== chips */
+
+.chips { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0 0 1.1rem; }
 .chip {
-  display: inline-flex; align-items: center; gap: .4rem;
-  border: 1px solid var(--panel-line); border-radius: 999px;
-  padding: .3rem .75rem; font-size: .84rem; text-decoration: none;
-  color: var(--body-fg); background: var(--panel-card-bg);
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 99px;
+  padding: .4rem .85rem;
+  font-size: .9rem;
+  color: var(--ink-2);
+  text-decoration: none;
+  box-shadow: var(--shadow);
 }
-.chip i { width: .6rem; height: .6rem; border-radius: 50%; }
-.chip b { font-variant-numeric: tabular-nums; }
-.chip:hover { border-color: var(--primary, #417690); }
-.chip.active { border-color: var(--primary, #417690); box-shadow: inset 0 0 0 1px var(--primary, #417690); }
+.chip i { width: .5rem; height: .5rem; border-radius: 50%; }
+.chip b { font-variant-numeric: tabular-nums; color: var(--ink); }
+.chip:hover { border-color: #cfd4dc; }
+.chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.chip.active b { color: var(--accent); }
 
-/* ------------------------------------------------------ chat view */
+/* ================================================= toolbar, forms, buttons */
 
-/* The customer page mirrors the Telegram conversation, so it is laid out like
- * one: their messages on the left, ours on the right. */
-.panel-grid.split { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
-.side { display: grid; gap: var(--panel-gap); align-content: start; }
-
-.chat-card { display: flex; flex-direction: column; }
-.chat { max-height: 68vh; overflow-y: auto; padding-right: .3rem; }
-.bubble {
-  max-width: 82%; margin: .45rem 0; padding: .5rem .75rem;
-  border-radius: 12px; background: var(--darkened-bg, rgba(127,127,127,.08));
-  border: 1px solid var(--panel-line);
+.toolbar {
+  display: flex;
+  gap: .6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
 }
-.bubble.user { margin-right: auto; border-color: #2b7de9; }
-.bubble.assistant { margin-left: auto; border-color: #1a7f37; }
-.bubble.outbound { margin-left: auto; border-color: #7d4fd1; }
-.bubble.operator { margin-left: auto; border-color: #b26b00; }
-.bubble-head {
-  font-size: .72rem; letter-spacing: .03em; text-transform: uppercase;
-  color: var(--body-quiet-color, #888); margin-bottom: .2rem;
+.toolbar .spacer { flex: 1; }
+.toolbar label { font-size: .88rem; color: var(--ink-3); }
+
+input[type="text"], input[type="search"], input[type="number"],
+input[type="password"], select, textarea {
+  font: inherit;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: .45rem .65rem;
+  box-shadow: var(--shadow);
+  max-width: 100%;
 }
-.bubble-body { white-space: pre-wrap; word-break: break-word; }
-
-.copy-link {
-  width: 12rem; font-size: .78rem; padding: .25rem .5rem;
-  border: 1px solid var(--panel-line); border-radius: 6px;
-  background: var(--darkened-bg, rgba(127,127,127,.06)); color: var(--body-quiet-color, #777);
+/* Leave room for the native dropdown arrow: without it the last character of a
+ * long option is clipped, which is how "barcha bo‘limlar" lost its tail. */
+select { padding-right: 1.9rem; height: auto; min-height: 2.3rem; }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
+input[type="search"] { min-width: 15rem; }
 
-.panel-table.compact td { padding: .3rem .4rem; font-size: .84rem; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font: inherit;
+  font-weight: 550;
+  padding: .45rem .9rem;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.btn:hover { border-color: #cfd4dc; color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #1d4ed8; color: #fff; }
+.btn.danger { color: var(--bad); }
+.btn.danger:hover { border-color: #fecdca; background: #fef3f2; }
+.btn.quiet { box-shadow: none; border-color: transparent; background: transparent; }
+.btn.quiet:hover { background: var(--page); }
+.btn.small { padding: .28rem .6rem; font-size: .85rem; }
 
-/* A button that reads as a link: the queue's row actions are small and
- * frequent, and three real buttons per row would drown the table. */
+/* An action inside a table row: reads as a link, behaves as a button. */
 .link-btn {
-  background: none; border: none; padding: .1rem .3rem; margin: 0;
-  color: var(--link-fg, #417690); cursor: pointer; font-size: .82rem;
+  background: none; border: 0; padding: .15rem .3rem; margin: 0;
+  font: inherit; font-size: .87rem; color: var(--accent); cursor: pointer;
 }
 .link-btn:hover { text-decoration: underline; }
-.link-btn.danger { color: #a40e26; }
+.link-btn.danger { color: var(--bad); }
 
-.pill.primary { background: var(--primary, #417690); border-color: var(--primary, #417690); color: #fff; }
+.field { margin-bottom: 1.1rem; }
+.field > label { display: block; font-weight: 550; color: var(--ink); margin-bottom: .3rem; font-size: .93rem; }
+.field .help { font-size: .85rem; color: var(--ink-3); margin-top: .3rem; }
+.field input[type="text"], .field input[type="number"] { width: 100%; max-width: 30rem; }
 
-/* ------------------------------------------------- outreach rules */
+.switch { display: flex; gap: .7rem; align-items: flex-start; margin-bottom: 1.1rem; }
+.switch input { margin-top: .35rem; width: 1.05rem; height: 1.05rem; accent-color: var(--accent); }
+.switch b { color: var(--ink); }
 
-.rules .rule { margin: .9rem 0; }
-.rules .rule > label { display: block; font-size: .84rem; margin-bottom: .25rem; }
-.rules .sub { font-size: .78rem; color: var(--body-quiet-color, #888); }
-.switch { display: flex; gap: .6rem; align-items: flex-start; margin-bottom: .4rem; }
-.switch input { margin-top: .25rem; }
+/* ================================================================== notes */
 
-.tables-block { margin-top: 1.6rem; }
-.tables-block > summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }
+.note {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: .75rem 1rem;
+  font-size: .9rem;
+  color: var(--ink-2);
+  margin-bottom: 1.1rem;
+  box-shadow: var(--shadow);
+}
+.note.info { background: var(--accent-soft); border-color: #c7d7fe; color: #1e40af; }
+.note.good { background: #ecfdf3; border-color: #abefc6; color: #05603a; }
+.note.warn { background: #fffaeb; border-color: #fedf89; color: #93370d; }
+.note.bad { background: #fef3f2; border-color: #fecdca; color: #912018; }
+.note a { color: inherit; }
+.note ul { margin: .4rem 0 0 1.1rem; }
+
+/* ================================================================== charts */
+
+.chart { width: 100%; height: auto; display: block; }
+.chart-empty { color: var(--ink-3); font-size: .9rem; margin: 1rem 0; text-align: center; }
+.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .85rem; margin-top: .7rem; color: var(--ink-3); }
+.legend span { display: inline-flex; align-items: center; gap: .4rem; }
+.legend i { width: .6rem; height: .6rem; border-radius: 3px; }
+
+.bars { display: grid; gap: .45rem; }
+.bar-row { display: grid; grid-template-columns: minmax(6rem, 11rem) 1fr auto; gap: .7rem; align-items: center; font-size: .89rem; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.bar-track { background: var(--line-soft); border-radius: 99px; height: .7rem; }
+.bar-fill { display: block; height: 100%; border-radius: 99px; min-width: 3px; }
+.bar-value { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+
+.split-bar { display: flex; height: 1.1rem; border-radius: 99px; overflow: hidden; background: var(--line-soft); }
+.split-bar span { display: block; height: 100%; }
+.split-legend { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
+
+/* =============================================================== the chat */
+
+.chat { max-height: 66vh; overflow-y: auto; padding-right: .4rem; }
+.msg { max-width: 84%; margin: .55rem 0; }
+.msg-body {
+  padding: .6rem .85rem;
+  border-radius: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: .93rem;
+}
+.msg-head { font-size: .78rem; color: var(--ink-3); margin-bottom: .2rem; }
+.msg.user { margin-right: auto; }
+.msg.user .msg-body { background: #f2f4f7; color: var(--ink); border-bottom-left-radius: 4px; }
+.msg.assistant, .msg.outbound, .msg.operator { margin-left: auto; }
+.msg.assistant .msg-head, .msg.outbound .msg-head, .msg.operator .msg-head { text-align: right; }
+.msg.assistant .msg-body { background: var(--accent-soft); color: #1e3a8a; border-bottom-right-radius: 4px; }
+.msg.outbound .msg-body { background: #f4f3ff; color: #5925dc; border-bottom-right-radius: 4px; }
+.msg.operator .msg-body { background: #fffaeb; color: #93370d; border-bottom-right-radius: 4px; }
+.log .msg { max-width: 100%; margin-left: 0; margin-right: 0; }
+.log .msg-head { text-align: left; }
+
+/* the full transcript view keeps tool/outcome rows too */
+.tr-msg { border-left: 3px solid var(--line); padding: .55rem .85rem; margin: .5rem 0; background: var(--surface); border-radius: 0 10px 10px 0; }
+.tr-msg.user { border-color: #667085; }
+.tr-msg.assistant { border-color: var(--accent); }
+.tr-msg.outbound { border-color: #7f56d9; }
+.tr-msg.operator { border-color: #dc6803; }
+.tr-msg.tool { border-color: #98a2b1; font-size: .88rem; }
+.tr-msg.outcome { border-color: var(--good); font-size: .88rem; }
+.tr-head { font-size: .78rem; color: var(--ink-3); margin-bottom: .25rem; }
+.tr-body { white-space: pre-wrap; word-break: break-word; }
+.tr-json { font-size: .8rem; color: var(--ink-3); white-space: pre-wrap; margin: .35rem 0 0; max-height: 12em; overflow: auto; }
+
+.copy-link {
+  width: 13rem; font-size: .82rem; padding: .35rem .6rem;
+  color: var(--ink-3); background: var(--page);
+}
+
+/* ========================================================= prompt editor */
+
+.prompt-edit {
+  width: 100%; min-height: 58vh; box-sizing: border-box;
+  font-family: var(--font-family-monospace, ui-monospace, Menlo, monospace);
+  font-size: .85rem; line-height: 1.6; tab-size: 2; resize: vertical;
+  background: #fcfcfd;
+}
+
+/* ================================================================ paging */
+
+.pager { display: flex; gap: .6rem; align-items: center; justify-content: center; margin-top: 1.2rem; font-size: .9rem; color: var(--ink-3); }
+
+/* ============================================== stock admin pages, softened */
+
+.module { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; background: var(--surface); }
+.module h2, .module caption { background: var(--page); color: var(--ink); font-size: .9rem; font-weight: 650; letter-spacing: 0; }
+#changelist-filter { border-radius: var(--radius); }
+.object-tools a { border-radius: 8px; }
+.messagelist li { border-radius: 10px; margin-bottom: .5rem; }
 
 @media (max-width: 1100px) {
-  .panel-grid.split { grid-template-columns: 1fr; }
+  .grid.split { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  #content { padding: 1.2rem 1rem 2.5rem; }
+  .topbar-in { padding: 0 1rem; }
+  .bar-row { grid-template-columns: minmax(5rem, 8rem) 1fr auto; }
+  .msg { max-width: 95%; }
 }
 
-/* The "recently sent" log is a list, not a conversation: the bubbles keep their
- * colour but drop the right-alignment that only makes sense inside a chat. */
-.sent-log .bubble { max-width: 100%; margin-left: 0; margin-right: 0; }
-
-/* The customer page's action bar: two forms side by side, wrapping on narrow
- * screens, with their explanation on its own full-width line. */
-.panel-filters.actions { gap: .75rem; }
-.panel-filters.actions form { display: flex; gap: .4rem; align-items: center; margin: 0; }
-.panel-filters.actions .followup input[type="text"] { min-width: 14rem; margin: 0; }
-
-/* The prompt editor. A big monospace box: the file is Markdown an operator
- * reads and edits whole, so line length and wrapping matter more than chrome. */
-.prompt-edit {
-  width: 100%; min-height: 60vh; box-sizing: border-box;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: .84rem; line-height: 1.5; tab-size: 2;
-  padding: .7rem .8rem; border-radius: 8px;
-  border: 1px solid var(--panel-line);
-  background: var(--darkened-bg, rgba(127,127,127,.05));
-  color: var(--body-fg); resize: vertical;
+/* The language switch: two small segmented buttons, quiet until chosen. */
+.langs { display: inline-flex; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.langs button {
+  font: inherit; font-size: .78rem; font-weight: 600; letter-spacing: .02em;
+  padding: .2rem .5rem; border: 0; background: var(--surface);
+  color: var(--ink-3); cursor: pointer;
 }
+.langs button:hover { color: var(--ink); background: var(--page); }
+.langs button.on { background: var(--accent-soft); color: var(--accent); }

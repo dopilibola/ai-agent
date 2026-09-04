@@ -27,15 +27,16 @@ from django.utils import timezone
 from crm import analytics as an
 from crm import env_settings as envs
 from crm import health as hp
+from crm.i18n import t
 from crm import outreach as out
 from crm import prompts as pr
 from panel import charts
 
 # Colours shared by every messages chart, so "blue = they wrote" holds
 # everywhere on the panel.
-INBOUND_C = "#2b7de9"
-REPLY_C = "#1a7f37"
-TOUCH_C = "#7d4fd1"
+INBOUND_C = "#2563eb"
+REPLY_C = "#12b76a"
+TOUCH_C = "#7f56d9"
 
 PERIODS = (7, 14, 30, 90)
 
@@ -102,30 +103,36 @@ def dashboard(request):
     today = [r for r in rows if r.last_inbound_at and r.last_inbound_at >= day_ago]
     paid = [r for r in rows if r.segment == "mijoz"]
 
+    # Built here rather than in the template because the hints interleave numbers
+    # with words; `t()` is per-request, so it sees the language the visitor chose.
     kpis = [
-        ("Sotib olishga yaqin", str(len(hot)), "40% dan yuqori mijozlar"),
-        ("Bugun yozganlar", str(len(today)), "oxirgi 24 soat"),
+        (t("Sotib olishga yaqin"), str(len(hot)), t("40% dan yuqori mijozlar")),
+        (t("Bugun yozganlar"), str(len(today)), t("oxirgi 24 soat")),
         (
-            "Yangi (7 kun)",
+            t("Yangi (7 kun)"),
             str(sum(1 for r in rows if r.first_seen and r.first_seen >= week_ago)),
-            "birinchi marta yozganlar",
+            t("birinchi marta yozganlar"),
         ),
-        ("Sotib olgan", str(len(paid)), f"{_money(sum(r.revenue for r in rows))} so‘m"),
         (
-            "Navbatdagi avto-xabar",
+            t("Sotib olgan"),
+            str(len(paid)),
+            f"{_money(sum(r.revenue for r in rows))} {t('so‘m')}",
+        ),
+        (
+            t("Navbatdagi avto-xabar"),
             str(queue["pending"]),
-            f"{queue['sent_week']} tasi shu hafta yuborilgan",
+            f"{queue['sent_week']} {t('tasi shu hafta yuborilgan')}",
         ),
         (
-            "Operator qo‘lida",
+            t("Operator qo‘lida"),
             str(sum(1 for r in rows if r.muted_at)),
-            "AI o‘chirilgan chatlar",
+            t("AI o‘chirilgan chatlar"),
         ),
     ]
 
     context = {
         **admin.site.each_context(request),
-        "title": "Bosh sahifa",
+        "title": t("Bosh sahifa"),
         "kpis": kpis,
         "hot_rows": an.filter_rows(live, sort="percent")[:12],
         "segment_bar": charts.segment_bar(
@@ -183,7 +190,7 @@ def users(request):
 
     context = {
         **admin.site.each_context(request),
-        "title": "Mijozlar",
+        "title": t("Mijozlar"),
         "page": page,
         "total": len(rows),
         "grand_total": len(all_rows),
@@ -200,7 +207,7 @@ def users(request):
             ("revenue", "tushum"),
             ("first_seen", "birinchi kelgan"),
             ("tokens", "token"),
-        ),
+        ),  # translated in the template with |t
         **params,
     }
     return TemplateResponse(request, "admin/users.html", context)
@@ -261,7 +268,8 @@ def user_detail(request, tenant: str, chat_id: int):
         "title": row.label,
         "row": row,
         "queued": out.upcoming(tenant, chat_id=chat_id, limit=20),
-        "purchased": out.is_purchased(tenant, chat_id),
+        "state": out.current_state(tenant, chat_id),
+        "states": out.MANUAL_STATES,
         "followup_options": FOLLOWUP_OPTIONS,
         "back": request.GET.get("back") or reverse("admin:users"),
         **detail,
@@ -269,13 +277,14 @@ def user_detail(request, tenant: str, chat_id: int):
     return TemplateResponse(request, "admin/user_detail.html", context)
 
 
-def mark_purchased(request):
-    """Operator button: «this one bought» (or take the mark back).
+def set_state(request):
+    """Operator button: move a customer between «faol», «sotib olgan» and «yopilgan».
 
-    An assertion about the relationship, not about money: it moves the customer
-    into the paid category and stops every queued message to them, but it does
-    not invent an order, so the revenue figures stay what the payment providers
-    actually confirmed.
+    Assertions about the relationship, not about money: they change the category
+    and stop every queued message, but they do not invent an order, so the
+    revenue figures stay what the payment providers actually confirmed. The heat
+    categories are not offered here — those are the score's estimate, and
+    hand-setting an estimate only makes it untrue.
     """
     tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
     back = request.POST.get("next") or reverse("admin:users")
@@ -284,22 +293,30 @@ def mark_purchased(request):
     try:
         chat_id = int(request.POST.get("chat_id") or "")
     except ValueError:
-        messages.error(request, "Noto‘g‘ri chat_id")
+        messages.error(request, t("Noto‘g‘ri chat_id"))
         return HttpResponseRedirect(back)
-    purchased = request.POST.get("purchased") != "0"
-    if not out.mark_purchased(tenant, chat_id, purchased=purchased):
+    state = (request.POST.get("state") or "").strip()
+    if not out.set_state(
+        tenant, chat_id, state, reason=(request.POST.get("reason") or "").strip()
+    ):
         messages.warning(
             request,
-            "Bu chatda murojaat (lid) yo‘q — avval mijoz bilan suhbat boshlanishi kerak.",
+            t("Bu chatda murojaat (lid) yo‘q — avval mijoz bilan suhbat boshlanishi kerak."),
         )
-    elif purchased:
+    elif state == out.PURCHASED_STATUS:
         messages.success(
             request,
-            "«Sotib olgan» deb belgilandi. Rejadagi avto-xabarlar bekor qilindi. "
-            "Tushum hisobiga qo‘shilmaydi — u faqat haqiqiy to‘lovlardan yig‘iladi.",
+            t(
+                "«Sotib olgan» deb belgilandi. Rejadagi avto-xabarlar bekor qilindi. "
+                "Tushum hisobiga qo‘shilmaydi — u faqat haqiqiy to‘lovlardan yig‘iladi."
+            ),
+        )
+    elif state == out.CLOSED_STATUS:
+        messages.success(
+            request, t("Yopilgan deb belgilandi, rejadagi xabarlar bekor qilindi.")
         )
     else:
-        messages.success(request, "Belgi olib tashlandi — mijoz yana faol holatda.")
+        messages.success(request, t("Faol holatga qaytarildi."))
     return HttpResponseRedirect(back)
 
 
@@ -323,12 +340,12 @@ def schedule_followup(request):
         tenant, chat_id, days=days, note=(request.POST.get("note") or "").strip()
     )
     if task is None:
-        messages.error(request, "Bu bo‘lim uchun rejalashtirish qo‘llab-quvvatlanmaydi.")
+        messages.error(request, t("Bu bo‘lim uchun rejalashtirish qo‘llab-quvvatlanmaydi."))
     else:
         when = timezone.localtime(task.scheduled_for).strftime("%d.%m.%Y %H:%M")
         messages.success(
             request,
-            f"{when} da yoziladi. Matnini AI o‘sha payt mijozning tilida yozadi.",
+            f"{when} — " + t("shu vaqtda yoziladi, matnini AI mijozning tilida yozadi."),
         )
     return HttpResponseRedirect(back)
 
@@ -353,9 +370,9 @@ def unmute(request):
         return HttpResponseRedirect(back)
     deleted, _ = MutedChat.objects.filter(tenant_id=tenant_id, chat_id=chat_id).delete()
     if deleted:
-        messages.success(request, f"{tenant_id}:{chat_id} — AI qayta yoqildi.")
+        messages.success(request, f"{tenant_id}:{chat_id} — " + t("AI qayta yoqildi."))
     else:
-        messages.warning(request, f"{tenant_id}:{chat_id} mute holatida emas edi.")
+        messages.warning(request, f"{tenant_id}:{chat_id} — " + t("mute holatida emas edi."))
     return HttpResponseRedirect(back)
 
 
@@ -367,7 +384,7 @@ def outreach(request):
     tenant = _tenant(request) or DEFAULT_TENANT
     context = {
         **admin.site.each_context(request),
-        "title": "Avto-xabarlar",
+        "title": t("Avto-xabarlar"),
         "tenant": tenant,
         "tenants": an.tenants() or [DEFAULT_TENANT],
         "policy": out.load_policy(tenant),
@@ -421,30 +438,30 @@ def outreach_task(request):
     try:
         task_id = int(request.POST.get("task_id") or "")
     except ValueError:
-        messages.error(request, "Noto‘g‘ri vazifa raqami.")
+        messages.error(request, t("Noto‘g‘ri vazifa raqami."))
         return HttpResponseRedirect(back)
 
     handlers = {
         "cancel": (
             lambda: out.cancel_task(tenant, task_id),
-            "Xabar bekor qilindi.",
+            t("Xabar bekor qilindi."),
         ),
         "postpone": (
             lambda: out.postpone_task(tenant, task_id, days=1),
-            "Bir kunga surildi.",
+            t("Bir kunga surildi."),
         ),
         "now": (
             lambda: out.send_now(tenant, task_id),
-            "Navbatga qo‘yildi — ruxsat etilgan eng yaqin vaqtda ketadi.",
+            t("Navbatga qo‘yildi — ruxsat etilgan eng yaqin vaqtda ketadi."),
         ),
     }
     handler = handlers.get(action)
     if handler is None:
-        messages.error(request, "Noma’lum amal.")
+        messages.error(request, t("Noma’lum amal."))
     elif handler[0]():
         messages.success(request, handler[1])
     else:
-        messages.warning(request, "Bajarilmadi — bu xabar endi navbatda emas.")
+        messages.warning(request, t("Bajarilmadi — bu xabar endi navbatda emas."))
     return HttpResponseRedirect(back)
 
 
@@ -465,9 +482,9 @@ def outreach_stop_chat(request):
         return HttpResponseRedirect(back)
     n = out.cancel_for_chat(tenant, chat_id)
     if n:
-        messages.success(request, f"{n} ta rejadagi xabar bekor qilindi.")
+        messages.success(request, f"{n} " + t("ta rejadagi xabar bekor qilindi."))
     else:
-        messages.info(request, "Bu chat uchun rejadagi xabar yo‘q edi.")
+        messages.info(request, t("Bu chat uchun rejadagi xabar yo‘q edi."))
     return HttpResponseRedirect(back)
 
 
@@ -490,7 +507,7 @@ def analytics(request):
     active = [r for r in rows if r.inbound]
     context = {
         **admin.site.each_context(request),
-        "title": "Tahlil",
+        "title": t("Tahlil"),
         "tenant": tenant,
         "tenants": an.tenants(),
         "days": days,
@@ -583,7 +600,7 @@ def prompts(request):
     info = pr.get_prompt(tenant, key)
     context = {
         **admin.site.each_context(request),
-        "title": "Bot qoidalari",
+        "title": t("Bot qoidalari"),
         "tenant": tenant,
         "tenants": pr.tenants_with_prompts(),
         "items": items,
@@ -609,7 +626,7 @@ def prompts_save(request):
     # browser only ever names a (tenant, key) pair.
     info = pr.get_prompt(tenant, key)
     if info is None:
-        messages.error(request, "Bunday qoida fayli yo‘q.")
+        messages.error(request, t("Bunday qoida fayli yo‘q."))
         return HttpResponseRedirect(reverse("admin:prompts"))
     ok, note = pr.write_prompt(info, request.POST.get("content", ""))
     (messages.success if ok else messages.error)(request, note)
@@ -622,7 +639,7 @@ def prompts_save(request):
 def health(request):
     context = {
         **admin.site.each_context(request),
-        "title": "Tizim holati",
+        "title": t("Tizim holati"),
         **hp.summary(),
     }
     return TemplateResponse(request, "admin/health.html", context)
@@ -643,7 +660,7 @@ def health_restart(request):
 def settings_env(request):
     context = {
         **admin.site.each_context(request),
-        "title": "Sozlamalar",
+        "title": t("Sozlamalar"),
         "fields": envs.FIELDS,
         "values": envs.read_values(),
         "env_path": str(envs.ENV_PATH),

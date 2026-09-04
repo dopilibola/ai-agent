@@ -110,9 +110,10 @@ list are buckets of that percentage, not a separate taxonomy.
   rendered like the chat it mirrors, next to a **"Telegramda ochish"** link that
   opens the same chat in Telegram, the score with the reasons that produced it,
   their orders and payments, and their queued messages. Two operator actions live
-  here: **«Sotib olgan deb belgilash»** (moves them to the paid category and
-  cancels their queued messages — it does not invent an order, so revenue stays
-  what the payment providers confirmed) and **«1 oydan keyin yozish»** (1 hafta /
+  here: a **category selector** — `faol / sotib olgan / yopilgan`, the two facts
+  a person knows and the system cannot see; either terminal state cancels their
+  queued messages, and neither invents an order, so revenue stays what the
+  payment providers confirmed and **«1 oydan keyin yozish»** (1 hafta /
   1 oy / 3 oy, with an optional note saying what to raise; the text itself is
   written by the agent at send time, in the client's language).
 - **Avto-xabarlar** (`/admin/outreach/`) — the automatic messages in one place:
@@ -135,6 +136,11 @@ list are buckets of that percentage, not a separate taxonomy.
 - **Tahlil** (`/admin/analytics/`) — the same over a period (7/14/30/90 days):
   volume, reply ratio, revenue, top senders and top writers, the touch mix, and
   **per-tool failure rates** read off the corpus.
+
+The panel is **light-themed and bilingual** — a `uz`/`en` switch in the topbar,
+Uzbek by default. Django's own strings come from the catalogues it ships; the
+panel's own copy from a plain table in `crm/i18n.py` (the server has no gettext,
+and a build step for two languages is a worse trade than a dictionary).
 
 Categories are derived, not stored (`crm/scoring.py::BUCKETS`): `mijoz` (paid)
 and `yopilgan` (lead lost) are decided by fact; the rest — `issiq` (≥65%),

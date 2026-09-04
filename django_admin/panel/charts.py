@@ -18,9 +18,9 @@ from html import escape
 from django.utils.safestring import mark_safe
 
 # Categorical palette — distinguishable, and readable on both themes.
-INK = "var(--body-fg, #333)"
-MUTED = "var(--body-quiet-color, #888)"
-GRID = "var(--hairline-color, #e4e4e4)"
+INK = "var(--ink-2, #475467)"
+MUTED = "var(--ink-3, #98a2b1)"
+GRID = "var(--line-soft, #f0f1f4)"
 
 
 def _fmt(n: float) -> str:
@@ -105,14 +105,14 @@ def hbars(items: list[tuple[str, int]], *, colour: str = "#2b7de9", limit: int =
     for label, value in items:
         pct = value / top * 100
         rows.append(
-            '<div class="hbar-row">'
-            f'<span class="hbar-label" title="{escape(label)}">{escape(label)}</span>'
-            f'<span class="hbar-track"><span class="hbar-fill" '
+            '<div class="bar-row">'
+            f'<span class="bar-label" title="{escape(label)}">{escape(label)}</span>'
+            f'<span class="bar-track"><span class="bar-fill" '
             f'style="width:{pct:.1f}%;background:{colour}"></span></span>'
-            f'<span class="hbar-value">{value:,}</span>'.replace(",", " ")
+            f'<span class="bar-value">{value:,}</span>'.replace(",", " ")
             + "</div>"
         )
-    return mark_safe('<div class="hbars">' + "".join(rows) + "</div>")
+    return mark_safe('<div class="bars">' + "".join(rows) + "</div>")
 
 
 def segment_bar(counts: list[tuple[object, int]], *, base: str = "") -> str:
@@ -130,17 +130,17 @@ def segment_bar(counts: list[tuple[object, int]], *, base: str = "") -> str:
             continue
         pct = value / total * 100
         cells.append(
-            f'<span class="seg-cell" style="width:{pct:.2f}%;background:{seg.color}" '
+            f'<span style="width:{pct:.2f}%;background:{seg.color}" '
             f'title="{escape(seg.label)}: {value} ({pct:.0f}%)"></span>'
         )
         legend.append(
-            f'<a class="seg-legend-item" href="{base}?segment={seg.key}">'
+            f'<a class="chip" href="{base}?segment={seg.key}" style="--c:{seg.color}">'
             f'<i style="background:{seg.color}"></i>{escape(seg.label)}'
             f"<b>{value}</b></a>"
         )
     return mark_safe(
-        '<div class="seg-bar">' + "".join(cells) + "</div>"
-        '<div class="seg-legend">' + "".join(legend) + "</div>"
+        '<div class="split-bar">' + "".join(cells) + "</div>"
+        '<div class="split-legend">' + "".join(legend) + "</div>"
     )
 
 

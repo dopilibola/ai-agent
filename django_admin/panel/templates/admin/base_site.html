@@ -1,26 +1,61 @@
 {% extends "admin/base.html" %}
-{% load static %}
+{% load static i18n panel_extras %}
 
 {% comment %}
-Adds the panel's stylesheet and its top navigation to every admin page —
-   including the stock model pages, so the panel reads as one product.
+The panel's shell.
+
+Two of Django's own pieces are replaced rather than restyled. The header and the
+breadcrumb bar become **one** topbar — two stacked navigation strips on every
+page was the main reason this thing felt heavy. And `dark-mode-vars` is emptied,
+which drops the admin's dark stylesheet and its theme toggle: this panel is read
+in daylight by people who never asked for a dark editor, so the theme is not a
+per-visitor setting here.
 {% endcomment %}
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | AI Sales{% endblock %}
+
+{% comment %} No dark stylesheet, no theme toggle — the panel is light. {% endcomment %}
+{% block dark-mode-vars %}{% endblock %}
 
 {% block extrastyle %}{{ block.super }}
   <link rel="stylesheet" href="{% static 'panel/panel.css' %}">
 {% endblock %}
 
-{% block branding %}
-  <div id="site-name"><a href="{% url 'admin:index' %}">AI Sales</a></div>
+{% block bodyclass %}{{ block.super }} panel{% endblock %}
+
+{% block header %}
+  <header class="topbar">
+    <div class="topbar-in">
+      <a class="brand" href="{% url 'admin:index' %}">AI <span>Sales</span></a>
+      {% if user.is_authenticated %}
+        <nav class="tabs" aria-label="{% t 'Bo‘limlar' %}">
+          {% for label, url in panel_nav %}
+            <a href="{{ url }}" {% if panel_path == url %}class="active"{% endif %}>{{ label|t }}</a>
+          {% endfor %}
+        </nav>
+        <div class="topbar-user">
+          {% comment %}
+          Two languages, one click each. Uzbek is the source language of the
+          panel's copy, so the switch changes Django's own strings through its
+          shipped catalogues and the panel's through `crm/i18n.py`.
+          {% endcomment %}
+          <form action="{% url 'set_language' %}" method="post" class="langs">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            {% get_current_language as LANG %}
+            <button type="submit" name="language" value="uz"
+                    class="{% if LANG == 'uz' %}on{% endif %}">UZ</button>
+            <button type="submit" name="language" value="en"
+                    class="{% if LANG == 'en' %}on{% endif %}">EN</button>
+          </form>
+          <span>{{ user.get_username }}</span>
+          <a href="{% url 'admin:password_change' %}">{% t "Parol" %}</a>
+          <a href="{% url 'admin:logout' %}">{% t "Chiqish" %}</a>
+        </div>
+      {% endif %}
+    </div>
+  </header>
 {% endblock %}
 
-{% block nav-breadcrumbs %}
-  <nav class="panel-nav" aria-label="Panel navigatsiyasi">
-    {% for label, url in panel_nav %}
-      <a href="{{ url }}" {% if panel_path == url %}class="active"{% endif %}>{{ label }}</a>
-    {% endfor %}
-  </nav>
-  {{ block.super }}
-{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block footer %}{% endblock %}
