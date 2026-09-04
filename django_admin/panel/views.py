@@ -25,7 +25,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from crm import analytics as an
+from crm import env_settings as envs
+from crm import health as hp
 from crm import outreach as out
+from crm import prompts as pr
 from panel import charts
 
 # Colours shared by every messages chart, so "blue = they wrote" holds
@@ -561,3 +564,98 @@ def thread(request, thread_id: str):
             ),
         },
     )
+
+
+# ------------------------------------------------------ the agent's own rules
+
+
+def prompts(request):
+    """Edit what the agent is told to do.
+
+    The bots re-read these files on every reply, so a save here changes the next
+    answer without a restart. Previous versions are kept, because a prompt edit
+    is the fastest way to break a working sales agent and the file on disk is
+    otherwise the only copy.
+    """
+    tenant = (request.GET.get("tenant") or DEFAULT_TENANT).strip()
+    items = pr.list_prompts(tenant)
+    key = (request.GET.get("key") or (items[0].key if items else "")).strip()
+    info = pr.get_prompt(tenant, key)
+    context = {
+        **admin.site.each_context(request),
+        "title": "Bot qoidalari",
+        "tenant": tenant,
+        "tenants": pr.tenants_with_prompts(),
+        "items": items,
+        "info": info,
+        "content": pr.read_prompt(info) if info else "",
+        "missing": bool(info and not info.exists),
+        "history": pr.history(info) if info else [],
+        "restore": (request.GET.get("restore") or "").strip(),
+        "restore_content": (
+            pr.read_history(info, request.GET.get("restore") or "") if info else ""
+        ),
+    }
+    return TemplateResponse(request, "admin/prompts.html", context)
+
+
+def prompts_save(request):
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    key = (request.POST.get("key") or "").strip()
+    back = f"{reverse('admin:prompts')}?tenant={tenant}&key={key}"
+    if request.method != "POST":
+        return HttpResponseRedirect(back)
+    # The path is resolved from the registry, never from the request — the
+    # browser only ever names a (tenant, key) pair.
+    info = pr.get_prompt(tenant, key)
+    if info is None:
+        messages.error(request, "Bunday qoida fayli yo‘q.")
+        return HttpResponseRedirect(reverse("admin:prompts"))
+    ok, note = pr.write_prompt(info, request.POST.get("content", ""))
+    (messages.success if ok else messages.error)(request, note)
+    return HttpResponseRedirect(back)
+
+
+# ------------------------------------------------------------------- health
+
+
+def health(request):
+    context = {
+        **admin.site.each_context(request),
+        "title": "Tizim holati",
+        **hp.summary(),
+    }
+    return TemplateResponse(request, "admin/health.html", context)
+
+
+def health_restart(request):
+    back = request.POST.get("next") or reverse("admin:health")
+    if request.method != "POST":
+        return HttpResponseRedirect(back)
+    ok, note = hp.restart_unit((request.POST.get("unit") or "").strip())
+    (messages.success if ok else messages.error)(request, note)
+    return HttpResponseRedirect(back)
+
+
+# ----------------------------------------------------------------- settings
+
+
+def settings_env(request):
+    context = {
+        **admin.site.each_context(request),
+        "title": "Sozlamalar",
+        "fields": envs.FIELDS,
+        "values": envs.read_values(),
+        "env_path": str(envs.ENV_PATH),
+    }
+    return TemplateResponse(request, "admin/settings_env.html", context)
+
+
+def settings_env_save(request):
+    back = reverse("admin:settings_env")
+    if request.method != "POST":
+        return HttpResponseRedirect(back)
+    ok, notes = envs.save_values(request.POST)
+    for note in notes:
+        (messages.success if ok else messages.error)(request, note)
+    return HttpResponseRedirect(back)

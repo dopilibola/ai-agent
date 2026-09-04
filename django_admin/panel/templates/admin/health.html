@@ -1,0 +1,112 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+"Is it running, and is it working." The verdict comes first, because the point
+of this page is to be readable in three seconds by someone who suspects
+something is wrong.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+{% if problems %}
+  <div class="card" style="border-color:#a40e26;margin-bottom:1.2rem">
+    <h3 style="color:#a40e26">Diqqat</h3>
+    <ul style="margin:.2rem 0 0 1rem">
+      {% for p in problems %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+  </div>
+{% else %}
+  <div class="card" style="border-color:#1a7f37;margin-bottom:1.2rem">
+    <h3 style="color:#1a7f37">Hammasi joyida</h3>
+    <p class="sub" style="margin:.2rem 0 0">
+      Xizmatlar ishlayapti, baza javob beryapti, javobsiz qolgan mijoz yo‘q.
+    </p>
+  </div>
+{% endif %}
+{% if notes %}
+  <div class="eval-note">
+    {% for n in notes %}{{ n }} {% endfor %}
+  </div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1.2rem">
+  <h3>Xizmatlar</h3>
+  <div class="table-wrap">
+  <table class="panel-table">
+    <thead>
+      <tr><th>Xizmat</th><th>Holat</th><th>Qachondan beri</th><th class="num">Qayta ishga tushgan</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for u in units %}
+      <tr>
+        <td class="who">{{ u.label }}<div class="sub">{{ u.name }}</div></td>
+        <td>
+          {% if not u.installed %}
+            <span class="badge" style="background:#8a8a8a">o‘rnatilmagan</span>
+          {% elif u.switched_off %}
+            <span class="badge" style="background:#b26b00">o‘chirilgan</span>
+          {% elif u.ok %}
+            <span class="badge" style="background:#1a7f37">ishlayapti</span>
+          {% else %}
+            <span class="badge" style="background:#a40e26">{{ u.active_state }}</span>
+          {% endif %}
+          {% if u.error %}<div class="card-err">{{ u.error }}</div>{% endif %}
+        </td>
+        <td class="sub">{{ u.since|default:"—" }}</td>
+        <td class="num">{{ u.restarts }}</td>
+        <td class="num nowrap">
+          {% if u.restartable and u.installed %}
+            <form method="post" action="{% url 'admin:health_restart' %}" style="margin:0">
+              {% csrf_token %}
+              <input type="hidden" name="unit" value="{{ u.name }}">
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="link-btn">qayta ishga tushirish</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="card-foot sub">
+    Qayta ishga tushirish suhbatlarni yo‘qotmaydi — tarix bazada saqlanadi.
+    Bir necha soniya davomida bot javob bermay turadi.
+  </div>
+</div>
+
+<div class="panel-grid wide">
+  <div class="card">
+    <h3>Ish belgilari</h3>
+    {% if activity.db_ok %}
+      <table class="panel-table compact">
+        <tbody>
+          <tr><td>Oxirgi mijoz xabari</td><td class="num">{{ activity.last.user|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+          <tr><td>Oxirgi AI javobi</td><td class="num">{{ activity.last.assistant|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+          <tr><td>Oxirgi avto-xabar</td><td class="num">{{ activity.last.outbound|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+          <tr><td>Oxirgi operator xabari</td><td class="num">{{ activity.last.operator|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+          <tr><td>Sutkada yozilgan hodisa</td><td class="num">{{ activity.events_24h|son }}</td></tr>
+          <tr><td>Haftada yozilgan hodisa</td><td class="num">{{ activity.events_7d|son }}</td></tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="card-err">Bazaga ulanib bo‘lmadi: {{ activity.error }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Rejadagi xabarlar navbati</h3>
+    <table class="panel-table compact">
+      <tbody>
+        <tr><td>Navbatda</td><td class="num">{{ activity.tasks_pending|default:"0" }}</td></tr>
+        <tr><td>Bajarilmoqda</td><td class="num">{{ activity.tasks_running|default:"0" }}</td></tr>
+        <tr><td>Xato bilan tugagan</td>
+            <td class="num {% if activity.tasks_failed %}bad{% endif %}">{{ activity.tasks_failed|default:"0" }}</td></tr>
+      </tbody>
+    </table>
+    <div class="card-foot"><a href="{% url 'admin:outreach' %}">Avto-xabarlar sahifasi →</a></div>
+  </div>
+</div>
+{% endblock %}

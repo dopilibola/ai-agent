@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+The few `.env` values an operator changes. Everything else in that file is
+credentials and wiring and is deliberately not readable from here — see
+crm/env_settings.py for the allow-list.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div class="panel-grid split">
+  <div class="card">
+    <h3>Sozlamalar</h3>
+    <form method="post" action="{% url 'admin:settings_env_save' %}" class="rules">
+      {% csrf_token %}
+      {% for f in fields %}
+        <div class="rule">
+          <label for="f-{{ f.key }}">{{ f.label }}</label>
+          <input id="f-{{ f.key }}" type="text" name="{{ f.key }}"
+                 value="{{ values|dictkey:f.key }}" style="width:100%;max-width:34rem">
+          <div class="sub">{{ f.help }}</div>
+        </div>
+      {% endfor %}
+      <button type="submit" class="default">Saqlash</button>
+    </form>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h3>Muhim</h3>
+      <p class="sub" style="margin:.2rem 0">
+        Bu qiymatlar bot <b>ishga tushganda</b> o‘qiladi. Saqlaganingizdan keyin
+        kuchga kirishi uchun botni qayta ishga tushiring.
+      </p>
+      <div class="card-foot"><a class="pill" href="{% url 'admin:health' %}">Holat sahifasi →</a></div>
+    </div>
+    <div class="card">
+      <h3>Bu yerda nima yo‘q</h3>
+      <p class="sub" style="margin:.2rem 0">
+        Payme/Uzum kalitlari, Telegram tokenlari va baza manzili ataylab
+        ko‘rsatilmaydi va tahrirlanmaydi — ular sir, va sirning brauzerdagi
+        maydonda turishi xavfsiz emas. Ularni serverda <code>{{ env_path }}</code>
+        faylidan o‘zgartiriladi.
+      </p>
+      <p class="sub" style="margin:.4rem 0 0">
+        Har saqlashda faylning eski nusxasi <code>.env.bak</code> ga yoziladi.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

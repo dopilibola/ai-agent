@@ -1,0 +1,100 @@
+{% extends "admin/base_site.html" %}
+
+{% comment %}
+The agent's own rules. One textarea, because that is what the file is — the
+value of this page is not the editor, it is that saving reaches the running bot
+without anyone opening a terminal.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div class="panel-filters">
+  {% if tenants|length > 1 %}
+    <form method="get" style="margin:0">
+      <select name="tenant" onchange="this.form.submit()" aria-label="Bo‘lim">
+        {% for t in tenants %}
+          <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  {% endif %}
+  <div class="pill-row">
+    {% for it in items %}
+      <a class="pill {% if info and it.key == info.key %}active{% endif %}"
+         href="?tenant={{ tenant }}&amp;key={{ it.key }}">{{ it.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not info %}
+  <div class="card"><p class="chart-empty">Bu bo‘lim uchun tahrirlanadigan qoida yo‘q.</p></div>
+{% else %}
+  {% if missing %}
+    <div class="eval-note warn">Fayl serverda topilmadi: {{ info.path }}</div>
+  {% endif %}
+
+  <div class="panel-grid split">
+    <div class="card">
+      <h3>{{ info.label }}</h3>
+      <p class="sub" style="margin:.2rem 0 .8rem">{{ info.note }}</p>
+
+      {% if restore_content %}
+        <div class="eval-note warn">
+          Eski nusxa ko‘rsatilmoqda. «Saqlash» bosilsa aynan shu matn tiklanadi.
+          <a href="?tenant={{ tenant }}&amp;key={{ info.key }}">bekor qilish</a>
+        </div>
+      {% endif %}
+
+      <form method="post" action="{% url 'admin:prompts_save' %}">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="hidden" name="key" value="{{ info.key }}">
+        <textarea name="content" class="prompt-edit" spellcheck="false"
+                  >{% if restore_content %}{{ restore_content }}{% else %}{{ content }}{% endif %}</textarea>
+        <div class="card-foot">
+          <button type="submit" class="default">Saqlash</button>
+          <span class="sub" style="margin-left:.6rem">
+            Saqlangan zahoti ishlaydi — botni qayta ishga tushirish shart emas.
+          </span>
+        </div>
+      </form>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <h3>Oldingi nusxalar</h3>
+        {% if history %}
+          <table class="panel-table compact">
+            <tbody>
+            {% for name, when in history %}
+              <tr>
+                <td>{{ when }}</td>
+                <td class="num">
+                  <a href="?tenant={{ tenant }}&amp;key={{ info.key }}&amp;restore={{ name }}">ko‘rish</a>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="chart-empty">Hali saqlangan nusxa yo‘q.</p>
+        {% endif %}
+        <div class="card-foot sub">
+          Har saqlashda oldingi matn shu yerga tushadi (oxirgi 10 tasi saqlanadi).
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Ehtiyot bo‘ling</h3>
+        <p class="sub" style="margin:.2rem 0">
+          Bu matn — botning qoidalari. Narxlar bu yerda emas, katalogda; matnga
+          narx yozmang. <code>{now_iso}</code> va <code>{weekday}</code> kabi
+          belgilarni o‘chirmang — ular har javobda joriy vaqtga almashtiriladi.
+        </p>
+        <p class="sub" style="margin:.4rem 0 0">Fayl: <code>{{ info.path }}</code></p>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

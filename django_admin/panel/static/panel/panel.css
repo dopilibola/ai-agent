@@ -314,3 +314,15 @@
 .panel-filters.actions { gap: .75rem; }
 .panel-filters.actions form { display: flex; gap: .4rem; align-items: center; margin: 0; }
 .panel-filters.actions .followup input[type="text"] { min-width: 14rem; margin: 0; }
+
+/* The prompt editor. A big monospace box: the file is Markdown an operator
+ * reads and edits whole, so line length and wrapping matter more than chrome. */
+.prompt-edit {
+  width: 100%; min-height: 60vh; box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .84rem; line-height: 1.5; tab-size: 2;
+  padding: .7rem .8rem; border-radius: 8px;
+  border: 1px solid var(--panel-line);
+  background: var(--darkened-bg, rgba(127,127,127,.05));
+  color: var(--body-fg); resize: vertical;
+}

@@ -59,3 +59,16 @@ def rol(value) -> str:
         "tool": "vosita",
         "outcome": "holat",
     }.get(str(value or ""), str(value or ""))
+
+
+@register.filter(name="dictkey")
+def dictkey(mapping, key):
+    """`{{ values|dictkey:field.key }}` — look a dict up by a variable key.
+
+    Django's dot lookup cannot use a variable as the key, and the settings page
+    pairs a fixed field list with a values dict, so it needs exactly this.
+    """
+    try:
+        return mapping.get(key, "")
+    except AttributeError:
+        return ""

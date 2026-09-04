@@ -13,6 +13,11 @@ more pages that the model admin cannot express:
   message to them a month out.
 * ``/admin/outreach/`` — the automatic messages: the pacing rules, the queue,
   and what actually went out.
+* ``/admin/prompts/`` — the agents' own rules, edited on disk; the bots re-read
+  them on every reply, so a save is live without a restart.
+* ``/admin/health/`` — are the units running, is the corpus still being written,
+  and a restart button for the bot units.
+* ``/admin/settings/`` — the few `.env` values an operator legitimately changes.
 * ``/admin/analytics/`` — the trends, the touch mix, and per-tool failure rates.
 * ``/admin/thread/<thread_id>/`` — one conversation in order.
 
@@ -70,6 +75,24 @@ class PanelAdminSite(admin.AdminSite):
                 self.admin_view(views.outreach_stop_chat),
                 name="outreach_stop_chat",
             ),
+            path("prompts/", self.admin_view(views.prompts), name="prompts"),
+            path(
+                "prompts/save/",
+                self.admin_view(views.prompts_save),
+                name="prompts_save",
+            ),
+            path("health/", self.admin_view(views.health), name="health"),
+            path(
+                "health/restart/",
+                self.admin_view(views.health_restart),
+                name="health_restart",
+            ),
+            path("settings/", self.admin_view(views.settings_env), name="settings_env"),
+            path(
+                "settings/save/",
+                self.admin_view(views.settings_env_save),
+                name="settings_env_save",
+            ),
             path("analytics/", self.admin_view(views.analytics), name="analytics"),
             path(
                 "thread/<path:thread_id>/",
@@ -92,7 +115,10 @@ class PanelAdminSite(admin.AdminSite):
             ("Bosh sahifa", reverse("admin:index")),
             ("Mijozlar", reverse("admin:users")),
             ("Avto-xabarlar", reverse("admin:outreach")),
+            ("Bot qoidalari", reverse("admin:prompts")),
             ("Tahlil", reverse("admin:analytics")),
+            ("Holat", reverse("admin:health")),
+            ("Sozlamalar", reverse("admin:settings_env")),
             ("Jadvallar", reverse("admin:crm_conversationevent_changelist")),
         ]
         context["panel_path"] = request.path

@@ -120,6 +120,18 @@ list are buckets of that percentage, not a separate taxonomy.
   a minimum gap), the queue with *hozir* / *+1 kun* / *bekor* on every row, and
   what actually went out, in the words the client read. Saved rules reach the
   running bots within seconds (`panel_settings` → `db/settings.py`), no restart.
+- **Bot qoidalari** (`/admin/prompts/`) — the agents' system prompts, edited in the
+  browser. The bots re-read the files on every reply, so a save takes effect
+  without a restart; each save keeps the previous version under
+  `prompts/.history/` and the page offers them back.
+- **Holat** (`/admin/health/`) — are the units running, is anyone waiting on an
+  unanswered message, how big is the queue, plus a restart button for the bot
+  units. A quiet day and a deliberately disabled unit are reported as notes
+  rather than alarms.
+- **Sozlamalar** (`/admin/settings/`) — the handful of `.env` values an operator
+  changes (support phone, operator chat ids, memorial dates, send hour). A fixed
+  allow-list: credentials are neither shown nor writable. These are read at
+  startup, so the page says to restart and links to the button.
 - **Tahlil** (`/admin/analytics/`) — the same over a period (7/14/30/90 days):
   volume, reply ratio, revenue, top senders and top writers, the touch mix, and
   **per-tool failure rates** read off the corpus.
