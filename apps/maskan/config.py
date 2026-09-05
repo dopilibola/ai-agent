@@ -196,6 +196,47 @@ class MaskanConfig:
         default_factory=lambda: int(os.environ.get("MASKAN_WATCHER_BATCH_SIZE", "40"))
     )
 
+    # ----- WhatsApp (Meta Cloud API) ----------------------------------------
+    # A second customer channel. Unlike Telegram it is webhook-driven: Meta
+    # posts to us, so the channel needs an HTTPS endpoint rather than a session
+    # file. `whatsapp_configured` is what the entrypoint checks — a half-filled
+    # block must not half-start a channel.
+    meta_app_id: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_APP_ID", "").strip()
+    )
+    meta_app_secret: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_APP_SECRET", "").strip()
+    )
+    meta_verify_token: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_VERIFY_TOKEN", "").strip()
+    )
+    meta_api_version: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_API_VERSION", "v21.0").strip()
+    )
+    meta_webhook_host: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_WEBHOOK_HOST", "127.0.0.1")
+    )
+    meta_webhook_port: int = field(
+        default_factory=lambda: int(os.environ.get("MASKAN_META_WEBHOOK_PORT", "58240"))
+    )
+    meta_webhook_path: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_META_WEBHOOK_PATH", "/meta/webhook")
+    )
+    whatsapp_token: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_WHATSAPP_TOKEN", "").strip()
+    )
+    whatsapp_phone_id: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_WHATSAPP_PHONE_ID", "").strip()
+    )
+    whatsapp_waba_id: str = field(
+        default_factory=lambda: os.environ.get("MASKAN_WHATSAPP_WABA_ID", "").strip()
+    )
+    whatsapp_debounce_seconds: float = field(
+        default_factory=lambda: float(
+            os.environ.get("MASKAN_WHATSAPP_DEBOUNCE_SECONDS", "4")
+        )
+    )
+
     # ----- business facts (interpolated into message templates) ------------
     support_phone: str = field(
         default_factory=lambda: os.environ.get("MASKAN_SUPPORT_PHONE", "+998 71 200 00 00")
@@ -329,6 +370,18 @@ class MaskanConfig:
     request_timeout: int = 30
     debounce_seconds: float = 5.0
     read_delay_seconds: float = 3.0
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        """Every piece needed to both receive and send. The app secret counts:
+        without it the webhook refuses all traffic, so starting the channel would
+        only produce an endpoint that says no."""
+        return bool(
+            self.whatsapp_token
+            and self.whatsapp_phone_id
+            and self.meta_app_secret
+            and self.meta_verify_token
+        )
 
     @property
     def api_configured(self) -> bool:
