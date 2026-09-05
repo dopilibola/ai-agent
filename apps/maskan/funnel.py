@@ -156,6 +156,29 @@ def _dedup(lead_id: int, stage: int, action: str, seq: int = 0) -> str:
     return f"{lead_id}:{stage}:{action}:{seq}"
 
 
+@dataclass(frozen=True)
+class Template:
+    """The pre-approved fallback for a transport that refuses free text.
+
+    WhatsApp allows an ordinary written message only within 24 hours of the
+    customer's last one; after that a scheduled touch can still go out, but only
+    as a template Meta approved in advance. That is a different message — fixed
+    wording, variables only — so the funnel names it explicitly rather than
+    letting a channel silently substitute one.
+    """
+
+    name: str
+    params: tuple[str, ...] = ()
+    language: str = "uz"
+    url_suffix: Optional[str] = None
+
+
+# Templates approved in the WhatsApp Business account, by the action they back.
+# A scheduled action with no entry here simply does not go out once the window
+# has closed — which is correct: there is nothing approved to send.
+TEMPLATES = {"operator_repeat": "takroriy_parvarish_taklifi_v1"}
+
+
 # Chat-silence follow-ups: one a few hours after the client's last message, one
 # more days later — then nothing, the initiative is theirs.
 CHAT_FOLLOWUP1_DELAY = timedelta(hours=4)
@@ -243,15 +266,55 @@ async def _send_client_directed(
     convey: str,
     fallback: str,
     must_include: tuple[str, ...] = (),
+    template: Optional[Template] = None,
 ) -> None:
     """Compose (via the customer agent) and send a scripted funnel touch.
 
     Bypasses the mute gate by design (compose + send_text don't go through
     dispatch) — these are pre-scripted touches, not the AI holding a conversation.
+
+    If the transport will not take free text right now (WhatsApp's 24-hour
+    window), the approved `template` is sent instead. The check happens *before*
+    composing: asking the model to write a message the platform cannot deliver
+    costs money and produces nothing. With no template for this action, the touch
+    raises — the scheduler parks it as failed and the panel shows it, which is
+    the honest outcome. Silently dropping it is the thing to avoid.
     """
     channel = await _channel_for(chat_id)
     if channel is None:
         raise RuntimeError("customer channel not wired")
+
+    if not await channel.freeform_allowed(int(chat_id)):
+        if template is None:
+            raise RuntimeError(
+                f"{channel.name}: outside the free-text window for chat {chat_id} "
+                "and no approved template for this touch"
+            )
+        sent = await channel.send_template(
+            int(chat_id),
+            name=template.name,
+            language=template.language,
+            body_params=template.params,
+            url_suffix=template.url_suffix,
+        )
+        if not sent:
+            raise RuntimeError(
+                f"{channel.name}: template {template.name!r} was refused for chat {chat_id}"
+            )
+        # The client received something, so the corpus has to say so — the daily
+        # cap and the panel both read it. The text is the template's, not ours.
+        from db.outreach import log_sent_touch
+
+        await log_sent_touch(
+            tenant_id=TENANT_ID,
+            chat_id=int(chat_id),
+            thread_id=channel.thread_id(int(chat_id)),
+            text=f"[shablon: {template.name}] " + ", ".join(template.params),
+            action=template.name,
+            channel=getattr(channel, "name", None),
+        )
+        return
+
     text, composed = await _compose_or_fallback(
         chat_id, convey=convey, fallback=fallback, must_include=must_include
     )
@@ -1241,6 +1304,13 @@ async def _exec_operator_repeat(lead, task: MaskanScheduledTask) -> None:
             "shoshirma va narx aytma."
         ),
         fallback=msg.s8_month_later(name, grave),
+        # A month later the 24-hour window is always shut, so on WhatsApp this
+        # touch is *always* the template. Its variables must never be empty —
+        # Meta rejects a template with a blank one.
+        template=Template(
+            name=TEMPLATES["operator_repeat"],
+            params=(name or "mijoz", grave or "qabr"),
+        ),
     )
 
 

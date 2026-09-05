@@ -27,6 +27,7 @@ import asyncio
 import base64
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any, Optional
 
@@ -40,6 +41,11 @@ GRAPH = "https://graph.facebook.com"
 
 # Meta's code for "you are outside the 24-hour customer service window".
 OUTSIDE_WINDOW_CODE = 131047
+
+# How long after the customer's last message free-form text is still allowed.
+# Checked ourselves rather than discovered from a rejection, so a scheduled
+# message can switch to a template *before* it is refused.
+FREEFORM_WINDOW = timedelta(hours=24)
 
 # What a message type means to a reader, when we cannot read it ourselves. The
 # agent gets these verbatim, the same way the Telegram channel narrates a
@@ -231,6 +237,76 @@ class WhatsAppChannel(Channel):
                 "text": {"preview_url": True, "body": text[:4096]},
             }
         )
+
+    async def freeform_allowed(self, chat_id: int) -> bool:
+        """Is this chat still inside its 24-hour window?
+
+        A chat we have never heard from is treated as outside it: Meta would
+        refuse the send anyway, and answering "yes" here would spend a model
+        call composing a message that cannot be delivered.
+        """
+        try:
+            from db.outreach import last_inbound_at
+
+            at = await last_inbound_at(self.tenant_id or "", int(chat_id))
+        except Exception:
+            logger.debug("window check failed for %s", chat_id, exc_info=True)
+            return False
+        if at is None:
+            return False
+        return (datetime.now(timezone.utc) - at) < FREEFORM_WINDOW
+
+    async def send_template(
+        self,
+        chat_id: int,
+        *,
+        name: str,
+        language: str = "uz",
+        body_params: tuple[str, ...] = (),
+        url_suffix: Optional[str] = None,
+    ) -> bool:
+        """Send a pre-approved template. Returns True only if Meta accepted it.
+
+        `url_suffix` fills a dynamic URL button. Note the asymmetry that catches
+        everyone: Meta's *sample* for such a button is a whole URL, but at send
+        time only the part after the fixed base is passed — send the whole URL
+        and the customer gets `https://checkout.paycom.uz/https://checkout…`.
+        """
+        components: list[dict] = []
+        if body_params:
+            components.append(
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(p)} for p in body_params
+                    ],
+                }
+            )
+        if url_suffix:
+            components.append(
+                {
+                    "type": "button",
+                    "sub_type": "url",
+                    "index": "0",
+                    "parameters": [{"type": "text", "text": url_suffix}],
+                }
+            )
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": str(chat_id),
+            "type": "template",
+            "template": {
+                "name": name,
+                "language": {"code": language},
+                **({"components": components} if components else {}),
+            },
+        }
+        result = await self._post(payload)
+        if result is None:
+            return False
+        logger.info("WhatsApp template %r sent to %s", name, chat_id)
+        return True
 
     async def send_photos(self, chat_id: int, urls: list[str]) -> None:
         for url in [u for u in urls if u][:10]:

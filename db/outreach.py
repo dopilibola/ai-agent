@@ -226,6 +226,39 @@ async def check_send(
     return Decision(True, None, "")
 
 
+async def last_inbound_at(tenant_id: str, chat_id: int) -> Optional[datetime]:
+    """When this chat last wrote to us — `None` if they never have.
+
+    WhatsApp's 24-hour rule is measured from exactly this instant, and the
+    corpus already records it. `None` is read as "outside the window": a chat we
+    have never heard from cannot be inside one, and guessing the other way would
+    make Meta refuse the send after we had already counted it as delivered.
+    """
+    try:
+        from sqlalchemy import select
+
+        from db.engine import database_configured, get_sessionmaker
+        from db.models import ConversationEvent
+
+        if not database_configured():
+            return None
+        stmt = (
+            select(ConversationEvent.created_at)
+            .where(
+                ConversationEvent.tenant_id == tenant_id,
+                ConversationEvent.chat_id == int(chat_id),
+                ConversationEvent.role == "user",
+            )
+            .order_by(ConversationEvent.id.desc())
+            .limit(1)
+        )
+        async with get_sessionmaker()() as session:
+            return await session.scalar(stmt)
+    except Exception:
+        logger.debug("last_inbound_at failed for %s", chat_id, exc_info=True)
+        return None
+
+
 async def last_channel(tenant_id: str, chat_id: int) -> str:
     """Which transport did this chat last use — "customer", "whatsapp", …?
 

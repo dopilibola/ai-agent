@@ -92,6 +92,32 @@ class Channel(ABC):
         """Download a URL (photo/video/document) and send it. Default: no-op."""
         logger.debug("Channel %s does not support send_file_url", self.name)
 
+    async def freeform_allowed(self, chat_id: int) -> bool:
+        """May we send this chat an ordinary written message right now?
+
+        True everywhere except WhatsApp, which refuses free text more than 24
+        hours after the customer last wrote and accepts only a pre-approved
+        template. Asked *before* composing, so a transport that cannot take the
+        message does not cost a model call to find out.
+        """
+        return True
+
+    async def send_template(
+        self,
+        chat_id: int,
+        *,
+        name: str,
+        language: str = "uz",
+        body_params: tuple[str, ...] = (),
+        url_suffix: Optional[str] = None,
+    ) -> bool:
+        """Send a pre-approved template. Default: unsupported, returns False.
+
+        Only the platforms that impose a template regime implement this; on
+        Telegram there is nothing a template could do that plain text cannot.
+        """
+        return False
+
     async def compose_outbound(self, chat_id: int, directive: str) -> str:
         """Generate a proactive client message through this channel's agent, in the
         customer's language/tone (see `Agent.compose`). Does NOT send — the caller
