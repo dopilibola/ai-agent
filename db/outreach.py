@@ -226,6 +226,43 @@ async def check_send(
     return Decision(True, None, "")
 
 
+async def last_channel(tenant_id: str, chat_id: int) -> str:
+    """Which transport did this chat last use — "customer", "whatsapp", …?
+
+    A tenant can now be reached on more than one transport, and a chat id means
+    different people on each: a Telegram id and a WhatsApp phone number are
+    different address spaces. So a scheduled touch must be delivered on the
+    channel the conversation actually happened on, and the corpus already
+    records it on every event.
+
+    Returns "" when nothing is known, which the caller reads as "use the
+    default" — a new chat with no history yet cannot have a scheduled touch.
+    """
+    try:
+        from sqlalchemy import select
+
+        from db.engine import database_configured, get_sessionmaker
+        from db.models import ConversationEvent
+
+        if not database_configured():
+            return ""
+        stmt = (
+            select(ConversationEvent.channel)
+            .where(
+                ConversationEvent.tenant_id == tenant_id,
+                ConversationEvent.chat_id == int(chat_id),
+                ConversationEvent.channel.is_not(None),
+            )
+            .order_by(ConversationEvent.id.desc())
+            .limit(1)
+        )
+        async with get_sessionmaker()() as session:
+            return (await session.scalar(stmt)) or ""
+    except Exception:
+        logger.debug("last_channel lookup failed for %s", chat_id, exc_info=True)
+        return ""
+
+
 async def log_sent_touch(
     *,
     tenant_id: str,

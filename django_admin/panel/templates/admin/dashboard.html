@@ -59,7 +59,7 @@ can wait until after "who is about to buy and hasn't heard from us".
         </td>
         <td class="sub">{{ r.last_seen|date:"d.m.Y H:i"|default:"—" }}</td>
         <td class="num">
-          <a class="btn small" href="{{ r.telegram_url }}" target="_blank" rel="noopener">Telegram</a>
+          <a class="btn small" href="{{ r.contact_url }}" target="_blank" rel="noopener">{{ r.contact_label }}</a>
         </td>
       </tr>
     {% empty %}

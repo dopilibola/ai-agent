@@ -76,6 +76,12 @@ logger = logging.getLogger(__name__)
 class FunnelContext:
     config: MaskanConfig
     customer_channel: Optional["Channel"] = None
+    # Every transport a client can be reached on. `customer_channel` stays the
+    # default; this is what makes a scheduled touch land on the transport the
+    # conversation actually happened on. A Telegram id and a WhatsApp phone
+    # number are different address spaces, so delivering to the wrong one does
+    # not fail loudly — it writes to a stranger, or to nobody.
+    customer_channels: tuple["Channel", ...] = ()
     notifier: Optional["TelegramOperatorNotifier"] = None
     mute_store: Optional["MuteStore"] = None
 
@@ -94,6 +100,29 @@ def get_context() -> FunnelContext:
         # rather than silently dropping a client message.
         raise RuntimeError("Maskan funnel context is not wired (call set_context first).")
     return _context
+
+
+async def _channel_for(chat_id: int) -> Optional["Channel"]:
+    """The channel this chat last spoke on, or the default one.
+
+    One indexed lookup per touch (`ix_conversation_events_chat`), which is
+    nothing next to the model call that follows it.
+    """
+    ctx = get_context()
+    if not ctx.customer_channels:
+        return ctx.customer_channel
+    if len(ctx.customer_channels) == 1:
+        return ctx.customer_channels[0]
+    try:
+        from db.outreach import last_channel
+
+        name = await last_channel(TENANT_ID, int(chat_id))
+    except Exception:
+        name = ""
+    for channel in ctx.customer_channels:
+        if channel.name == name:
+            return channel
+    return ctx.customer_channel or ctx.customer_channels[0]
 
 
 # ===== time helpers =========================================================
@@ -195,10 +224,10 @@ async def _compose_or_fallback(
     which the caller needs because `Agent.compose` logs what it wrote and a
     fallback would otherwise leave no trace in the corpus.
     """
-    ctx = get_context()
+    channel = await _channel_for(chat_id)
     text = ""
-    if ctx.customer_channel is not None:
-        text = await ctx.customer_channel.compose_outbound(int(chat_id), convey)
+    if channel is not None:
+        text = await channel.compose_outbound(int(chat_id), convey)
     composed = bool(text)
     if not text:
         text = fallback
@@ -220,13 +249,13 @@ async def _send_client_directed(
     Bypasses the mute gate by design (compose + send_text don't go through
     dispatch) — these are pre-scripted touches, not the AI holding a conversation.
     """
-    ctx = get_context()
-    if ctx.customer_channel is None:
+    channel = await _channel_for(chat_id)
+    if channel is None:
         raise RuntimeError("customer channel not wired")
     text, composed = await _compose_or_fallback(
         chat_id, convey=convey, fallback=fallback, must_include=must_include
     )
-    await ctx.customer_channel.send_text(int(chat_id), text)
+    await channel.send_text(int(chat_id), text)
     if not composed:
         # The composer logs what it wrote; a template send would leave the
         # corpus (and the daily cap that reads it) blind to a real message.
@@ -235,9 +264,9 @@ async def _send_client_directed(
         await log_sent_touch(
             tenant_id=TENANT_ID,
             chat_id=int(chat_id),
-            thread_id=ctx.customer_channel.thread_id(int(chat_id)),
+            thread_id=channel.thread_id(int(chat_id)),
             text=text,
-            channel=getattr(ctx.customer_channel, "name", None),
+            channel=getattr(channel, "name", None),
         )
     await _record_outbound(chat_id, text)
 
@@ -245,10 +274,10 @@ async def _send_client_directed(
 async def _record_outbound(chat_id: int, note: str) -> None:
     """Mirror an out-of-band send into the agent's conversation thread so the AI
     has the full history on handback. Best-effort — never blocks a send."""
-    ctx = get_context()
-    if ctx.customer_channel is not None and note:
+    channel = await _channel_for(chat_id)
+    if channel is not None and note:
         try:
-            await ctx.customer_channel.record_outbound(int(chat_id), note)
+            await channel.record_outbound(int(chat_id), note)
         except Exception:
             logger.debug("record_outbound failed for %s", chat_id, exc_info=True)
 
@@ -257,10 +286,10 @@ async def _send_client_photos(chat_id: int, urls: list[str]) -> None:
     urls = [u for u in urls if u]
     if not urls:
         return
-    ctx = get_context()
-    if ctx.customer_channel is None:
+    channel = await _channel_for(chat_id)
+    if channel is None:
         raise RuntimeError("customer channel not wired")
-    await ctx.customer_channel.send_photos(int(chat_id), urls)
+    await channel.send_photos(int(chat_id), urls)
 
 
 async def _notify(text: str, *, reply_markup: Optional[dict] = None) -> int:

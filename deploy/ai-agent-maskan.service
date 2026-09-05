@@ -1,0 +1,25 @@
+[Unit]
+Description=ai-agent: Maskan tenant (userbot + operator bot + care scheduler + order watcher)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=marketing_ttlk_co_uk
+Group=marketing_ttlk_co_uk
+WorkingDirectory=/home/marketing_ttlk_co_uk/ai-agent
+Environment=PATH=/home/marketing_ttlk_co_uk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/marketing_ttlk_co_uk/.local/bin/uv run maskan-all
+Restart=always
+RestartSec=10
+KillSignal=SIGINT
+# SIGINT makes Python exit 130, which systemd reads as a failure and
+# fires OnFailure= on every ordinary restart. A restart is not an
+# incident, and an alert that cries wolf is an alert nobody reads.
+SuccessExitStatus=130
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

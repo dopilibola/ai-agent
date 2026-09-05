@@ -105,8 +105,20 @@ class MetaWebhookServer:
             "Meta webhook listening on %s:%s%s for %s",
             self.host, self.port, self.path, ", ".join(sorted(self._handlers)) or "nothing",
         )
+        # Shut down through uvicorn's own flag rather than by cancelling it.
+        # Cancelling mid-serve makes uvicorn log a traceback on every restart,
+        # and a log that cries wolf at every restart is a log nobody reads.
+        task = asyncio.create_task(server.serve(), name="meta-webhook")
         try:
-            await server.serve()
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            server.should_exit = True
+            try:
+                await asyncio.wait_for(task, timeout=10)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                task.cancel()
+            logger.info("Meta webhook stopped")
+            raise
         finally:
             if not self._started.done():
                 self._started.set_result(None)

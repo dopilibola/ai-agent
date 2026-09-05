@@ -80,6 +80,10 @@ class ChatRow:
     last_inbound_at: datetime | None = None
     last_outbound_at: datetime | None = None
     muted_at: datetime | None = None
+    # Which transport this chat last used. A chat id means a different person on
+    # each — a Telegram id and a WhatsApp phone number are different address
+    # spaces — so the "open the conversation" link has to know.
+    channel: str = ""
     tokens: int = 0
     lead_stage: int | None = None
     lead_status: str = ""
@@ -123,17 +127,25 @@ class ChatRow:
         return SEGMENT_BY_KEY.get(self.segment, SEGMENTS[-1])
 
     @property
-    def telegram_url(self) -> str:
-        """A link that opens this exact conversation in Telegram.
+    def contact_url(self) -> str:
+        """A link that opens this exact conversation, on its own transport.
 
-        `t.me/<username>` when we know the handle — it works in every client,
-        including the desktop web app. Without one, `tg://user?id=` is the only
-        addressable form; it opens in the installed app, and does nothing in a
-        browser, which is why the username is preferred when there is one.
+        WhatsApp is the easy case: the chat id *is* the phone number, so
+        `wa.me/<number>` opens it anywhere. Telegram prefers `t.me/<username>`,
+        which works in every client including the web app; without a handle,
+        `tg://user?id=` is the only addressable form — it opens the installed
+        app and does nothing in a browser, which is why the username wins when
+        there is one.
         """
+        if self.channel == "whatsapp":
+            return f"https://wa.me/{self.chat_id}"
         if self.username:
             return f"https://t.me/{self.username.lstrip('@')}"
         return f"tg://user?id={self.chat_id}"
+
+    @property
+    def contact_label(self) -> str:
+        return "WhatsApp" if self.channel == "whatsapp" else "Telegram"
 
     @property
     def bar_width(self) -> int:
@@ -165,9 +177,9 @@ def chat_rows(tenant: str = "", include_eval: bool = False) -> list[ChatRow]:
             rows[key] = ChatRow(tenant_id=tenant_id, chat_id=chat_id)
         return rows[key]
 
-    events = ConversationEvent.objects.values("tenant_id", "chat_id", "role").annotate(
-        n=Count("id"), first=Min("created_at"), last=Max("created_at")
-    )
+    events = ConversationEvent.objects.values(
+        "tenant_id", "chat_id", "role", "channel"
+    ).annotate(n=Count("id"), first=Min("created_at"), last=Max("created_at"))
     if tenant:
         events = events.filter(tenant_id=tenant)
     for e in events:
@@ -191,6 +203,10 @@ def chat_rows(tenant: str = "", include_eval: bool = False) -> list[ChatRow]:
         # neither direction, but they still date the conversation.
         if e["first"] and (row.first_seen is None or e["first"] < row.first_seen):
             row.first_seen = e["first"]
+        # The channel of the newest event wins, so a customer who moved from one
+        # transport to another is linked on the one they are actually using.
+        if e["channel"] and (row.last_seen is None or (last and last >= row.last_seen)):
+            row.channel = e["channel"]
         row.last_seen = _later(row.last_seen, last)
 
     profiles = ChatProfile.objects.all()

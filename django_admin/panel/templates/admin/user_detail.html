@@ -30,8 +30,8 @@ something sit right under the name; everything below them is information.
     `t.me/<username>` when the handle is known (works everywhere, web included),
     otherwise the tg:// form, which only opens in the installed app.
     {% endcomment %}
-    <a class="btn primary" href="{{ row.telegram_url }}" target="_blank" rel="noopener">{% t "Telegramda ochish" %}</a>
-    <input class="copy-link" type="text" readonly value="{{ row.telegram_url }}"
+    <a class="btn primary" href="{{ row.contact_url }}" target="_blank" rel="noopener">{{ row.contact_label }}{% t "da ochish" %}</a>
+    <input class="copy-link" type="text" readonly value="{{ row.contact_url }}"
            onclick="this.select()" title="{% t 'Havolani nusxalash uchun bosing' %}">
 
     {% comment %}

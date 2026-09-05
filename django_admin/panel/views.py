@@ -228,7 +228,7 @@ def users_csv(request):
             "ehtimol_foiz", "kategoriya",
             "kelgan", "yuborilgan", "javob", "rejali_tegish", "operator",
             "buyurtma", "tolangan_buyurtma", "tushum_sum", "token",
-            "lid_bosqich", "lid_status", "birinchi", "oxirgi", "telegram",
+            "lid_bosqich", "lid_status", "birinchi", "oxirgi", "aloqa",
         ]
     )
     for r in rows:
@@ -241,7 +241,7 @@ def users_csv(request):
                 r.lead_stage or "", r.lead_status,
                 r.first_seen.isoformat() if r.first_seen else "",
                 r.last_seen.isoformat() if r.last_seen else "",
-                r.telegram_url,
+                r.contact_url,
             ]
         )
     return response

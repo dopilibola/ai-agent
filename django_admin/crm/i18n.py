@@ -94,6 +94,7 @@ EN: dict[str, str] = {
     # ---- one customer
     "ro‘yxatga": "back to the list",
     "operator qo‘lida": "with an operator",
+    "da ochish": "\u2009— open",
     "Telegramda ochish": "Open in Telegram",
     "Havolani nusxalash uchun bosing": "Click to copy the link",
     "Belgini olib tashlash": "Remove the mark",

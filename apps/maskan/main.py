@@ -290,6 +290,7 @@ def build_tenant(
         else:
             customer_channel = _userbot_channel(sales_agent)
             channels.append(customer_channel)
+    whatsapp_channel = None
     if include_whatsapp:
         if not config.whatsapp_configured:
             logger.warning(
@@ -297,7 +298,8 @@ def build_tenant(
                 "verify token) — skipping the WhatsApp channel."
             )
         else:
-            channels.append(_whatsapp_channel(sales_agent))
+            whatsapp_channel = _whatsapp_channel(sales_agent)
+            channels.append(whatsapp_channel)
 
     if include_operator:
         if not config.bot_token:
@@ -311,6 +313,13 @@ def build_tenant(
         funnel.FunnelContext(
             config=config,
             customer_channel=customer_channel,
+            # Every transport a client can be on. A scheduled touch is delivered
+            # on the one that chat actually used — a Telegram id and a WhatsApp
+            # phone number are different address spaces, so the wrong choice
+            # writes to a stranger rather than failing.
+            customer_channels=tuple(
+                c for c in (customer_channel, whatsapp_channel) if c is not None
+            ),
             notifier=get_notifier(),
             mute_store=get_mute_store(),
         )

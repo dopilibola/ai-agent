@@ -100,7 +100,7 @@ directory that tries to show everything is a directory nobody scans.
           {% if r.answered_last %}<br><span class="good">{% t "javob bergan" %}</span>{% endif %}
         </td>
         <td class="num">
-          <a class="btn small" href="{{ r.telegram_url }}" target="_blank" rel="noopener">Telegram</a>
+          <a class="btn small" href="{{ r.contact_url }}" target="_blank" rel="noopener">{{ r.contact_label }}</a>
         </td>
       </tr>
     {% empty %}
