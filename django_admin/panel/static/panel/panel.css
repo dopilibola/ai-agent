@@ -547,3 +547,11 @@ input[type="search"] { min-width: 15rem; }
 }
 .langs button:hover { color: var(--ink); background: var(--page); }
 .langs button.on { background: var(--accent-soft); color: var(--accent); }
+
+/* Replying by hand, under the conversation — where you are already reading. */
+.reply { margin-top: .9rem; display: grid; gap: .5rem; }
+.reply textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 3.4rem;
+  font-family: inherit; font-size: .95rem;
+}
+.reply-foot { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }

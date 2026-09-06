@@ -121,13 +121,25 @@ class WhatsAppChannel(Channel):
                     str(c.get("wa_id")): ((c.get("profile") or {}).get("name") or "")
                     for c in (value.get("contacts") or [])
                 }
-                for message in value.get("messages") or []:
+                messages = value.get("messages") or []
+                for message in messages:
                     try:
                         await self._on_message(message, names)
                     except Exception:
                         logger.exception("WhatsApp: failed to take in a message")
-                # Delivery/read receipts arrive here too; nothing to do with
-                # them yet, and logging each one would drown the real traffic.
+                if not messages:
+                    # Delivery/read receipts land here too. There is nothing to
+                    # do with them, but say so: a webhook POST that produces no
+                    # log at all is indistinguishable from one that was dropped,
+                    # and that ambiguity is what makes "why did nobody answer?"
+                    # hard to answer.
+                    kinds = sorted(
+                        {str(s.get("status") or "?") for s in (value.get("statuses") or [])}
+                    )
+                    logger.info(
+                        "WhatsApp: no message in this event (%s)",
+                        ", ".join(kinds) or change.get("field") or "unknown",
+                    )
 
     async def _on_message(self, message: dict, names: dict[str, str]) -> None:
         wa_id = str(message.get("from") or "")

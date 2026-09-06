@@ -48,6 +48,7 @@ ACTION_LABELS: dict[str, str] = {
     # operator-scheduled, every tenant
     "operator_followup": "Operator rejalashtirgan xabar",
     "operator_repeat": "Bir oydan keyin: takroriy parvarish taklifi",
+    "operator_message": "Operator javobi",
     # maskan
     "chat_followup1": "Jim qolganda birinchi eslatma",
     "chat_followup2": "Jim qolganda oxirgi eslatma",
@@ -107,7 +108,7 @@ OPERATOR_ACTIONS = frozenset(
     for k in ACTION_LABELS
     # `operator_followup` is the opposite case — scheduled *by* an operator and
     # addressed to the client — so it is excluded by name.
-    if k not in ("operator_followup", "operator_repeat")
+    if k not in ("operator_followup", "operator_repeat", "operator_message")
     and (k.startswith("bitrix_") or "operator" in k or k.endswith("_sla"))
 )
 
@@ -514,3 +515,73 @@ def schedule_followup(
         dedup_key=f"op:{chat_id}:{int(when.timestamp())}",
         created_at=timezone.now(),
     )
+
+
+# ------------------------------------------------------ replying by hand
+#
+# On Telegram a human simply types from the bot's own account and the channel
+# notices. WhatsApp has no account to type from — the number is API-only — so
+# without this there is no way at all for a person to answer a WhatsApp customer.
+#
+# The panel cannot call the channel directly (different process, and it imports
+# none of the bot runtime), so it queues the message on the same durable task
+# table the funnel uses. The scheduler picks it up on its next tick.
+
+MESSAGE_ACTION = "operator_message"
+
+
+def send_operator_message(tenant: str, chat_id: int, text: str):
+    """Queue one message to be sent verbatim, as the operator.
+
+    Returns the task, or None if the tenant has no queue. The send itself mutes
+    the chat so the AI steps back — that happens in the bot process, where the
+    mute store and the agent's thread live.
+    """
+    from crm.models import MaskanLead
+
+    text = (text or "").strip()
+    model = task_model(tenant)
+    if model is None or not text:
+        return None
+    lead = (
+        MaskanLead.objects.filter(tenant_id=tenant, chat_id=chat_id)
+        .order_by("-id")
+        .first()
+    )
+    now = timezone.now()
+    return model.objects.create(
+        tenant_id=tenant,
+        lead_id=(lead.id if lead else 0),
+        chat_id=chat_id,
+        action_type=MESSAGE_ACTION,
+        stage=0,
+        payload={"source": OPERATOR_SOURCE, "text": text[:3000]},
+        scheduled_for=now,
+        status="pending",
+        attempts=0,
+        # Unique per send: two replies are two messages, never one reset row.
+        dedup_key=f"op:msg:{chat_id}:{int(now.timestamp() * 1000)}",
+        created_at=now,
+    )
+
+
+def freeform_window_open(tenant: str, chat_id: int, channel: str) -> bool:
+    """Can a plain written reply still reach this chat?
+
+    Only WhatsApp closes: 24 hours after the customer's last message Meta takes
+    nothing but an approved template. Shown as a warning *before* the operator
+    types, because discovering it after pressing send is the wrong moment.
+    """
+    if channel != "whatsapp":
+        return True
+    from datetime import timedelta
+
+    from crm.models import ConversationEvent
+
+    last = (
+        ConversationEvent.objects.filter(tenant_id=tenant, chat_id=chat_id, role="user")
+        .order_by("-id")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    return bool(last and timezone.now() - last < timedelta(hours=24))

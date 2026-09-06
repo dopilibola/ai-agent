@@ -269,6 +269,7 @@ def user_detail(request, tenant: str, chat_id: int):
         "row": row,
         "queued": out.upcoming(tenant, chat_id=chat_id, limit=20),
         "state": out.current_state(tenant, chat_id),
+        "window_open": out.freeform_window_open(tenant, chat_id, row.channel),
         "states": out.MANUAL_STATES,
         "followup_options": FOLLOWUP_OPTIONS,
         "back": request.GET.get("back") or reverse("admin:users"),
@@ -322,6 +323,36 @@ def set_state(request):
         )
     else:
         messages.success(request, t("Faol holatga qaytarildi."))
+    return HttpResponseRedirect(back)
+
+
+def operator_reply(request):
+    """Send one message to a customer, as the operator, and step the AI back.
+
+    Queued rather than sent inline: the panel is a separate process and holds no
+    channel. The scheduler delivers it on its next tick, which also gives the
+    send the funnel's own routing, muting and corpus logging for free.
+    """
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    back = request.POST.get("next") or reverse("admin:users")
+    if request.method != "POST":
+        return HttpResponseRedirect(back)
+    try:
+        chat_id = int(request.POST.get("chat_id") or "")
+    except ValueError:
+        messages.error(request, t("Noto‘g‘ri chat_id"))
+        return HttpResponseRedirect(back)
+    text = (request.POST.get("text") or "").strip()
+    if not text:
+        messages.warning(request, t("Xabar matni bo‘sh."))
+        return HttpResponseRedirect(back)
+    if out.send_operator_message(tenant, chat_id, text) is None:
+        messages.error(request, t("Xabarni navbatga qo‘yib bo‘lmadi."))
+    else:
+        messages.success(
+            request,
+            t("Xabar navbatga qo‘yildi — bir daqiqa ichida yuboriladi. AI bu chatda jim bo‘ladi."),
+        )
     return HttpResponseRedirect(back)
 
 

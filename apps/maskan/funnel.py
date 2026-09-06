@@ -1314,7 +1314,52 @@ async def _exec_operator_repeat(lead, task: MaskanScheduledTask) -> None:
     )
 
 
+async def _exec_operator_message(lead, task: MaskanScheduledTask) -> None:
+    """An operator's own words, sent verbatim, and the AI steps back.
+
+    The counterpart of what already happens on Telegram when a human types from
+    the bot's own account: the chat is muted so the agent stops answering, and
+    the message is filed under the `operator` role so the agent has the human's
+    side of the conversation when control comes back — and so the learning loop
+    can harvest it later.
+
+    Not composed, not rewritten: an operator who typed a sentence meant that
+    sentence.
+    """
+    text = str((task.payload or {}).get("text") or "").strip()
+    if not text:
+        return
+    chat_id = int(task.chat_id)
+    channel = await _channel_for(chat_id)
+    if channel is None:
+        raise RuntimeError("customer channel not wired")
+    if not await channel.freeform_allowed(chat_id):
+        # WhatsApp will refuse it; say so rather than let it fail as a mystery.
+        raise RuntimeError(
+            f"{channel.name}: 24 soatlik oyna yopiq — mijoz avval yozishi kerak"
+        )
+    await channel.send_text(chat_id, text)
+
+    ctx = get_context()
+    if ctx.mute_store is not None:
+        try:
+            await ctx.mute_store.mute(chat_id)
+        except Exception:
+            logger.exception("Maskan: could not mute chat %s after an operator reply", chat_id)
+    try:
+        await channel.agent.record_user_message(
+            f"[Operator javobi]: {text}",
+            thread_id=channel.thread_id(chat_id),
+            log_role="operator",
+            log_text=text,
+        )
+    except Exception:
+        logger.debug("recording the operator reply failed for %s", chat_id, exc_info=True)
+    logger.info("Maskan: operator replied to %s on %s", chat_id, channel.name)
+
+
 ACTIONS = {
+    "operator_message": _exec_operator_message,
     "operator_followup": _exec_operator_followup,
     "operator_repeat": _exec_operator_repeat,
     "chat_followup1": _exec_chat_followup1,
@@ -1348,6 +1393,11 @@ ACTIONS = {
 # are not marketing.
 OPERATOR_ONLY_ACTIONS = frozenset({"s4_operator_check", "s5_sla", "s6_sla"})
 
+# A person pressed send and is waiting. Quiet hours and daily caps exist to stop
+# the funnel pestering people on its own; holding a human's own reply until 09:00
+# would be absurd, so these skip the gate entirely.
+IMMEDIATE_ACTIONS = frozenset({"operator_message"})
+
 
 async def _outreach_gate(task: MaskanScheduledTask) -> bool:
     """Ask `db.outreach` whether this client-facing touch may go out now.
@@ -1359,7 +1409,7 @@ async def _outreach_gate(task: MaskanScheduledTask) -> bool:
     Never blocks staff-facing tasks, and never blocks on its own failure: an
     unreadable policy sends, exactly as it did before.
     """
-    if task.action_type in OPERATOR_ONLY_ACTIONS:
+    if task.action_type in OPERATOR_ONLY_ACTIONS or task.action_type in IMMEDIATE_ACTIONS:
         return True
     try:
         from db.outreach import check_send, is_operator_task

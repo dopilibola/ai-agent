@@ -100,6 +100,29 @@ something sit right under the name; everything below them is information.
         <p class="empty">{% t "Bu chatda hali xabar yo‘q." %}</p>
       {% endfor %}
     </div>
+    {% comment %}
+    Answering by hand. On Telegram a human can simply type from the bot's own
+    account; on WhatsApp there is no account to type from, so without this box
+    there is no way at all to reply to a WhatsApp customer.
+    {% endcomment %}
+    <form method="post" action="{% url 'admin:operator_reply' %}" class="reply">
+      {% csrf_token %}
+      <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
+      <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      {% if window_open %}
+        <textarea name="text" rows="2" placeholder="{% t 'O‘zingiz javob yozing…' %}"></textarea>
+        <div class="reply-foot">
+          <button type="submit" class="btn primary">{% t "Yuborish" %}</button>
+          <span class="small muted">{% t "Yuborilgach AI bu chatda jim bo‘ladi." %}</span>
+        </div>
+      {% else %}
+        <div class="note warn" style="margin:0">
+          {% t "WhatsApp: mijoz oxirgi marta 24 soatdan oldin yozgan, shuning uchun erkin matn yuborib bo‘lmaydi. Mijoz o‘zi yozsa, oyna qaytadan ochiladi." %}
+        </div>
+      {% endif %}
+    </form>
+
     <div class="card-foot">
       <a href="{% url 'admin:conversation_thread' row.thread_id %}">{% t "To‘liq yozuv (vositalar bilan)" %} →</a>
     </div>

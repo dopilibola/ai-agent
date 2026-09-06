@@ -109,6 +109,17 @@ EN: dict[str, str] = {
     "3 oy": "3 months",
     "dan keyin": " from now",
     "Suhbat": "Conversation",
+    "O‘zingiz javob yozing…": "Write your own reply…",
+    "Yuborish": "Send",
+    "Yuborilgach AI bu chatda jim bo‘ladi.": "Once sent, the AI goes quiet in this chat.",
+    "WhatsApp: mijoz oxirgi marta 24 soatdan oldin yozgan, shuning uchun erkin matn yuborib bo‘lmaydi. Mijoz o‘zi yozsa, oyna qaytadan ochiladi.":
+        "WhatsApp: this customer last wrote more than 24 hours ago, so a free-text "
+        "reply cannot be delivered. The window reopens as soon as they write again.",
+    "Xabar matni bo‘sh.": "The message is empty.",
+    "Xabarni navbatga qo‘yib bo‘lmadi.": "Could not queue the message.",
+    "Xabar navbatga qo‘yildi — bir daqiqa ichida yuboriladi. AI bu chatda jim bo‘ladi.":
+        "Queued — it goes out within a minute. The AI will stay quiet in this chat.",
+    "Operator javobi": "Operator reply",
     "Bu chatda hali xabar yo‘q.": "No messages in this chat yet.",
     "To‘liq yozuv (vositalar bilan)": "Full log (with tool calls)",
     "Qisqacha": "Summary",

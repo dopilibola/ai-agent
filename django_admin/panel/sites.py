@@ -55,6 +55,11 @@ class PanelAdminSite(admin.AdminSite):
                 name="set_state",
             ),
             path(
+                "users/reply/",
+                self.admin_view(views.operator_reply),
+                name="operator_reply",
+            ),
+            path(
                 "users/followup/",
                 self.admin_view(views.schedule_followup),
                 name="schedule_followup",
