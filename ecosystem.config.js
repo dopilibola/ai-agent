@@ -7,7 +7,7 @@
 // finds .env and the Telethon *.session files under data/ resolve.
 //
 //   pm2 start ecosystem.config.js
-//   pm2 logs anfa-all
+//   pm2 logs maskan-all
 //   pm2 save           # persist across reboots (pm2 startup must be set up)
 
 const cwd = __dirname;
@@ -19,50 +19,6 @@ const env = { PYTHONPATH: cwd };
 
 module.exports = {
   apps: [
-    {
-      name: "oygul-customer",
-      script: "./.venv/bin/oygul-customer",
-      cwd,
-      interpreter,
-      env,
-      autorestart: true,
-      max_restarts: 10,
-      restart_delay: 5000,
-    },
-    {
-      name: "oygul-merchant",
-      script: "./.venv/bin/oygul-merchant",
-      cwd,
-      interpreter,
-      env,
-      autorestart: true,
-      max_restarts: 10,
-      restart_delay: 5000,
-    },
-    {
-      // Bundles the anfa catalog-advisor bot + userbot + catalog→vector sync loop.
-      name: "anfa-all",
-      script: "./.venv/bin/anfa-all",
-      cwd,
-      interpreter,
-      env,
-      autorestart: true,
-      max_restarts: 10,
-      restart_delay: 5000,
-    },
-    {
-      // Bundles the BYD customer userbot (AI sales agent) + operator bot
-      // (manager agent, funnel notifications, inline callbacks) + the deal
-      // scheduler that fires the funnel's time-delayed actions — one process.
-      name: "byd-all",
-      script: "./.venv/bin/byd-all",
-      cwd,
-      interpreter,
-      env,
-      autorestart: true,
-      max_restarts: 10,
-      restart_delay: 5000,
-    },
     {
       // Bundles the Maskan client userbot (AI grave-care agent) + operator bot
       // (manager agent, funnel notifications, inline callbacks) + the care

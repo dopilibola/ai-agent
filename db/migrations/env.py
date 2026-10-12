@@ -17,9 +17,6 @@ from db.models import Base
 # Register per-tenant domain tables on the shared Base.metadata so
 # `alembic revision --autogenerate` sees them. Each tenant declares its tables
 # on db.models.Base in apps/<tenant>/models.py (see CLAUDE.md "Adding a tenant").
-import apps.oygul.models  # noqa: E402,F401
-import apps.anfa.models  # noqa: E402,F401
-import apps.byd.models  # noqa: E402,F401
 import apps.maskan.models  # noqa: E402,F401
 
 config = context.config

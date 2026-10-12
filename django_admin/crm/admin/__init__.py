@@ -6,4 +6,4 @@ Django's autodiscovery imports `crm.admin` on startup.
 
 from __future__ import annotations
 
-from . import anfa, byd, maskan, oygul, shared  # noqa: F401
+from . import maskan, shared  # noqa: F401

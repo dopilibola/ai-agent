@@ -9,7 +9,7 @@ share the host filesystem under pm2.
 This registry is the *only* source of truth for which files the panel may
 read/write. The HTTP layer never accepts a path from the client; it accepts a
 ``(tenant, key)`` pair and resolves it here, so the edit surface is bounded to
-these four files and can't escape the prompts directories.
+these files and can't escape the prompts directories.
 
 Keep this in sync when you add a tenant agent with an editable prompt.
 """
@@ -36,68 +36,6 @@ class PromptInfo:
 
 
 PROMPTS: dict[str, list[PromptInfo]] = {
-    "anfa": [
-        PromptInfo(
-            tenant="anfa",
-            key="catalog",
-            label="Catalog advisor (clients)",
-            note=(
-                "Client-facing service-catalog advisor on the bot + userbot — "
-                "quotes prices and invites clients to visit. Fill in the clinic "
-                "address/phone/hours block. Keep the {now_iso} and {weekday} "
-                "placeholders — they are replaced with the live clinic-timezone "
-                "datetime on each reply."
-            ),
-            path=_REPO_ROOT / "apps" / "anfa" / "prompts" / "catalog_system.md",
-        ),
-        PromptInfo(
-            tenant="anfa",
-            key="manager",
-            label="Manager agent (clinic staff)",
-            note=(
-                "Staff-facing admin agent served on the bot to allow-listed "
-                "clinic staff (ANFA_MANAGER_ALLOWED_IDS) — manages catalog "
-                "prices, the doctor roster, and muted chats over chat."
-            ),
-            path=_REPO_ROOT / "apps" / "anfa" / "prompts" / "manager_system.md",
-        ),
-    ],
-    "oygul": [
-        PromptInfo(
-            tenant="oygul",
-            key="lola",
-            label="Lola — customer sales agent",
-            note="Customer-facing salesperson on the userbot.",
-            path=_REPO_ROOT / "apps" / "oygul" / "prompts" / "lola_system.md",
-        ),
-        PromptInfo(
-            tenant="oygul",
-            key="merchant",
-            label="Merchant catalog agent",
-            note="Internal merchant bot for adding/managing bouquets.",
-            path=_REPO_ROOT / "apps" / "oygul" / "prompts" / "merchant_system.md",
-        ),
-    ],
-    "byd": [
-        PromptInfo(
-            tenant="byd",
-            key="sales",
-            label="Sales agent (customers)",
-            note=(
-                "Customer-facing first-contact sales agent on the userbot — runs "
-                "Stage 1 (new lead). Keep the {now_iso} and {weekday} placeholders; "
-                "they are replaced with the live clinic-timezone datetime each reply."
-            ),
-            path=_REPO_ROOT / "apps" / "byd" / "prompts" / "sales_system.md",
-        ),
-        PromptInfo(
-            tenant="byd",
-            key="manager",
-            label="Operator/manager agent (staff)",
-            note="Clinic-staff agent on the operator bot — drives funnel stages by chat.",
-            path=_REPO_ROOT / "apps" / "byd" / "prompts" / "manager_system.md",
-        ),
-    ],
     "maskan": [
         PromptInfo(
             tenant="maskan",

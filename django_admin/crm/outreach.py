@@ -72,32 +72,6 @@ ACTION_LABELS: dict[str, str] = {
     "s8_recurring": "Takroriy parvarish taklifi",
     "s8_annual": "Yillik parvarish taklifi",
     "memorial": "Ziyorat kunlari oldidan eslatma",
-    # byd
-    "s1_call_reminder": "Qo‘ng‘iroq eslatmasi",
-    "s1_escalation": "Operatorga: javob yo‘q",
-    "s2_touch1": "Qiziqtirish (1)",
-    "s2_touch2": "Qiziqtirish (2)",
-    "s2_touch3": "Qiziqtirish (3)",
-    "s2_touch4": "Qiziqtirish (4)",
-    "s2_touch5": "Qiziqtirish (5)",
-    "s2_reactivation": "Qayta jonlantirish",
-    "s4_confirm": "Tasdiqlash",
-    "s4_reminder": "Tasdiqlash eslatmasi",
-    "s4_operator_confirm": "Operatorga: tasdiqlash",
-    "s5_payment_link": "To‘lov havolasi",
-    "s5_reminder": "To‘lov eslatmasi",
-    "s5_operator_check": "Operatorga: to‘lov tekshiruvi",
-    "s7_operator_prepare": "Operatorga: tayyorgarlik",
-    "s7_reminder": "Kelish eslatmasi",
-    "s7_morning": "Ertalabki eslatma",
-    "s8_review": "Fikr so‘rash",
-    "s8_referral": "Tavsiya so‘rash",
-    "s8_reactivation": "Qayta jonlantirish",
-    "s8_birthday": "Tug‘ilgan kun tabrigi",
-    "bitrix_sync": "Bitrix bilan sinxron",
-    "bitrix_comment": "Bitrixga izoh",
-    "bitrix_task": "Bitrixda vazifa",
-    "bitrix_task_complete": "Bitrix vazifasi yopildi",
 }
 
 # Touches addressed to staff rather than to the client. Mirrors
@@ -123,9 +97,9 @@ def is_operator_action(action_type: str) -> bool:
 
 def task_model(tenant: str):
     """The scheduled-task table for a tenant, or None if it has no funnel."""
-    from crm.models import BydScheduledTask, MaskanScheduledTask
+    from crm.models import MaskanScheduledTask
 
-    return {"maskan": MaskanScheduledTask, "byd": BydScheduledTask}.get(tenant or "maskan")
+    return {"maskan": MaskanScheduledTask}.get(tenant or "maskan")
 
 
 # ------------------------------------------------------------------ settings

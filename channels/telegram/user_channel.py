@@ -1,6 +1,6 @@
 """TelegramUserChannel — Telethon client logged in as a real user account.
 
-Session must be pre-created via `scripts/anfa_telethon_login.py` or
+Session must be pre-created via `scripts/maskan_telethon_login.py` or
 equivalent (interactive phone + SMS-code flow). The user account talks to
 customers from a real account, which feels more like a human handoff than a
 @BotFather bot does.

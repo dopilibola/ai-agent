@@ -226,9 +226,7 @@ def chat_rows(tenant: str = "", include_eval: bool = False) -> list[ChatRow]:
     for mc in muted:
         slot(mc.tenant_id, mc.chat_id).muted_at = mc.muted_at
 
-    # Tenant-specific domain data. Only Maskan keeps orders in this database;
-    # the others contribute leads only (byd) or nothing (oygul/anfa customers
-    # are tracked by their own tables, which are not per-chat).
+    # Tenant-specific domain data. Only Maskan keeps orders in this database.
     if not tenant or tenant == "maskan":
         # Oldest first, so the newest lead is the one left standing. A chat can
         # hold several: the funnel opens a fresh lead when a returning client
@@ -394,10 +392,9 @@ def daily_revenue(days: int = 30, include_eval: bool = False) -> dict:
 
 def funnel_stages(tenant: str = "maskan", include_eval: bool = False) -> list[tuple[str, int]]:
     """Active leads per stage — the drop-off, read left to right."""
-    from crm.models import BydLead, MaskanLead
+    from crm.models import MaskanLead
 
-    model = MaskanLead if tenant != "byd" else BydLead
-    qs = model.objects.filter(status="active")
+    qs = MaskanLead.objects.filter(status="active")
     if not include_eval:
         qs = qs.exclude(chat_id__gte=EVAL_CHAT_MIN, chat_id__lte=EVAL_CHAT_MAX)
     agg = (
@@ -411,12 +408,11 @@ def funnel_stages(tenant: str = "maskan", include_eval: bool = False) -> list[tu
 
 def touch_actions(tenant: str = "maskan", days: int = 30) -> list[tuple[str, int]]:
     """Which scheduled touches actually fired — the "sms" mix, by action type."""
-    from crm.models import BydScheduledTask, MaskanScheduledTask
+    from crm.models import MaskanScheduledTask
 
-    model = MaskanScheduledTask if tenant != "byd" else BydScheduledTask
     since = timezone.now() - timedelta(days=days)
     agg = (
-        model.objects.filter(status="done", executed_at__gte=since)
+        MaskanScheduledTask.objects.filter(status="done", executed_at__gte=since)
         .values("action_type")
         .annotate(n=Count("id"))
         .order_by("-n")

@@ -28,11 +28,8 @@ from admin.config import config
 from admin.repository import Repository
 from admin.routers import (
     auth,
-    catalog,
     chats,
-    clinic,
     conversations,
-    orders,
     prompts,
     tenants,
     usage,
@@ -83,7 +80,7 @@ def create_app() -> FastAPI:
     )
 
     # All API routes live under /api so the SPA can own the rest of the paths.
-    for module in (auth, tenants, chats, usage, conversations, catalog, orders, clinic, prompts):
+    for module in (auth, tenants, chats, usage, conversations, prompts):
         app.include_router(module.router, prefix="/api")
 
     @app.get("/api/health", tags=["meta"])

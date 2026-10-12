@@ -6,8 +6,6 @@ Split per tenant to match the repo's layout (`apps/<tenant>/models.py`), plus
 
 from __future__ import annotations
 
-from .anfa import AnfaCatalogItem, AnfaDoctor
-from .byd import BydLead, BydOperatorTask, BydProgram, BydScheduledTask
 from .maskan import (
     MaskanCemetery,
     MaskanGrave,
@@ -17,7 +15,6 @@ from .maskan import (
     MaskanScheduledTask,
     MaskanService,
 )
-from .oygul import OygulBouquet, OygulOrder
 from .shared import (
     ChatProfile,
     ChatTokenUsage,
@@ -28,12 +25,6 @@ from .shared import (
 )
 
 __all__ = [
-    "AnfaCatalogItem",
-    "AnfaDoctor",
-    "BydLead",
-    "BydOperatorTask",
-    "BydProgram",
-    "BydScheduledTask",
     "ChatProfile",
     "ChatTokenUsage",
     "ConversationEvent",
@@ -47,6 +38,4 @@ __all__ = [
     "MaskanService",
     "MutedChat",
     "PanelSetting",
-    "OygulBouquet",
-    "OygulOrder",
 ]

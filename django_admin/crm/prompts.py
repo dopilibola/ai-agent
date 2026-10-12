@@ -79,38 +79,6 @@ PROMPTS: dict[str, list[PromptInfo]] = {
             path=REPO_ROOT / "apps" / "maskan" / "prompts" / "manager_system.md",
         ),
     ],
-    "anfa": [
-        PromptInfo(
-            tenant="anfa",
-            key="catalog",
-            label="Katalog maslahatchisi (mijozlar)",
-            note="Klinika xizmatlari va narxlarini aytadigan agent.",
-            path=REPO_ROOT / "apps" / "anfa" / "prompts" / "catalog_system.md",
-        ),
-        PromptInfo(
-            tenant="anfa",
-            key="manager",
-            label="Menejer agenti (klinika xodimlari)",
-            note="Narxlar, shifokorlar ro‘yxati va mute chatlarni boshqaradi.",
-            path=REPO_ROOT / "apps" / "anfa" / "prompts" / "manager_system.md",
-        ),
-    ],
-    "oygul": [
-        PromptInfo(
-            tenant="oygul",
-            key="lola",
-            label="Lola — sotuvchi agent",
-            note="Mijozlar bilan ishlaydigan gul sotuvchi.",
-            path=REPO_ROOT / "apps" / "oygul" / "prompts" / "lola_system.md",
-        ),
-        PromptInfo(
-            tenant="oygul",
-            key="merchant",
-            label="Katalog boti (ichki)",
-            note="Buketlarni qo‘shish/boshqarish uchun ichki bot.",
-            path=REPO_ROOT / "apps" / "oygul" / "prompts" / "merchant_system.md",
-        ),
-    ],
 }
 
 

@@ -6,11 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A multi-tenant Telegram AI sales-agent platform. The repo is split into **shared, tenant-agnostic core packages** (`core/`, `channels/`, `rag/`, `voice/`, `notifications/`, `sync/`, `db/`) and **tenants** under `apps/` that are pure configuration + wiring — a tenant declares its prompt, `@tool` functions, and channel bindings, then hands a `Tenant(id, agents, channels, sync_jobs)` to `Runtime`. Adding or changing a tenant should not require touching the core packages.
 
-Four tenants ship today:
+One tenant ships today. (`oygul`, `anfa` and `byd` were removed on 2026-10-12 — code, scripts, panel views and their tables, see migration `0015`. Passages below that still name them describe how the shared mechanisms were used and are kept as design history.)
 
-- `apps/oygul/` — flower shop: a customer userbot "Lola" + a merchant catalog bot.
-- `apps/anfa/` — Tashkent clinic: a service-catalog advisor on bot+userbot. It searches the clinic's priced service catalog, quotes prices, and directs clients to walk into the clinic. There is **no online booking** — the clinic keeps its own local-only CRM and registers patients in person; it exports its service list as Excel, which the admin panel ingests into Postgres → Chroma.
-- `apps/byd/` — BYD Medical detox clinic: a faithful rebuild of the clinic's Bitrix24 sales funnel. A customer userbot (AI sales agent) + an operator bot (manager agent + inline buttons) + a durable per-deal scheduler firing ~23 time-delayed touches across 8 stages, mirrored into Bitrix24 (`bitrix.py`/`bitrix_sync.py`), with a PDF booking voucher (`voucher.py`).
 - `apps/maskan/` — Maskan grave care: an AI advisor on a client userbot that sells grave care end to end. **Standalone since 2026-08-20**: it owns its catalogue, cemeteries, graves and orders, and takes money through the operator's own Payme/Uzum merchant account — see "Maskan is standalone" below. It began as a front end for an existing Flutter app + Django/DRF backend (`app.mas-kan.uz`); that integration (`api_client.py`, `order_watcher.py`, `backend/botapi/`) is still in the tree but no longer wired.
 
 Separately, two internal **admin panels** read/write the shared Postgres without being part of the tenant runtime: `admin/` + `web/` (FastAPI + React) and `django_admin/` (Django admin). See "Admin panel" and "Django admin panel" under cross-cutting patterns.
@@ -23,22 +20,11 @@ Python ≥3.12, managed with **uv**.
 uv sync                                  # install all deps into .venv
 
 # Run a tenant (console scripts from pyproject.toml [project.scripts])
-uv run oygul-customer                    # Lola on a Telegram user account
-uv run oygul-merchant                    # merchant catalog bot
-uv run anfa-all                          # anfa bot + userbot + KB sync in one process
-uv run anfa-bot | anfa-userbot | anfa-sync   # or each anfa worker alone
-uv run python scripts/anfa_import_catalog.py apps/anfa/exports/medplus_export.xlsx   # import the clinic's Excel service export into Postgres (also exposed as an admin-panel upload)
-uv run python scripts/anfa_import_doctors.py "apps/anfa/exports/Шифокорлар руйхати.docx"   # import the clinic's Word doctor roster (also an admin-panel upload)
-uv run byd-all                           # byd userbot + operator bot + deal scheduler (+ Bitrix sync)
-uv run byd-userbot | byd-operator        # or each byd half alone
 uv run maskan-all                        # maskan userbot + operator bot + care scheduler + order watcher
 uv run maskan-userbot | maskan-operator  # or each maskan half alone
 
 # Helper scripts
-uv run python scripts/oygul_embed.py --json bouquets.json   # ingest catalog → CLIP → Chroma
-uv run python scripts/anfa_telethon_login.py                # one-time interactive userbot login
-uv run python scripts/byd_telethon_login.py                 # (same, per tenant)
-uv run python scripts/maskan_telethon_login.py
+uv run python scripts/maskan_telethon_login.py              # one-time interactive userbot login
 uv run python scripts/maskan_seed_catalog.py            # seed/update maskan's own price list + cemeteries
 uv run python scripts/maskan_seed_catalog.py --list     # show what the agent will quote
 
@@ -53,7 +39,7 @@ uv run alembic revision --autogenerate -m "msg"   # new migration from db/models
 
 # Production process management (bots run on host, reach Postgres in Docker)
 pm2 start ecosystem.config.js            # starts all bots + the admin-api panel
-pm2 logs anfa-all
+pm2 logs maskan-all
 
 # Admin panel (internal — ONE FastAPI process serves the API + the built UI)
 uv sync --extra admin                    # one-time: install FastAPI/uvicorn into .venv

@@ -5,16 +5,14 @@ ai-sales — multi-tenant Telegram AI sales platform
 
 Tenant entrypoints (see pyproject.toml [project.scripts]):
 
-  oygul-customer   Run the flower-shop customer agent (Lola) on a user account
-  oygul-merchant   Run the flower-shop merchant catalog bot
-  anfa-all        Run anfa bot + userbot + KB sync together
-  anfa-bot        Run only the anfa booking bot
-  anfa-userbot    Run only the anfa userbot
-  anfa-sync       Run only the anfa CRM → vector DB sync loop
+  maskan-all           Run maskan userbot + operator bot + scheduler together
+  maskan-userbot       Run only the maskan client userbot
+  maskan-operator      Run only the maskan operator bot
+  maskan-payments-api  Run the maskan payment-callback API
 
 Helper scripts:
-  python scripts/oygul_embed.py --json bouquets.json
-  python scripts/anfa_telethon_login.py
+  python scripts/maskan_telethon_login.py
+  python scripts/maskan_seed_catalog.py
 """
 
 

@@ -26,10 +26,10 @@ dependencies = [
     "httpx>=0.28.1",
     # Image
     "pillow>=12.2.0",
-    # Excel + Word ingestion (anfa clinic service-catalog + doctor-roster exports)
+    # Excel + Word ingestion
     "openpyxl>=3.1.0",
     "python-docx>=1.1.0",
-    # PDF generation (BYD Stage-6 booking voucher)
+    # PDF generation
     "reportlab>=4.2.0",
     # Validation
     "pydantic>=2.13.0",
@@ -61,7 +61,7 @@ dependencies = [
 admin = [
     "uvicorn[standard]>=0.34.0",
     "itsdangerous>=2.2.0",
-    # Multipart form parsing for the anfa catalog Excel upload (UploadFile).
+    # Multipart form parsing (UploadFile).
     "python-multipart>=0.0.18",
 ]
 
@@ -77,15 +77,6 @@ panel = [
 ]
 
 [project.scripts]
-oygul-customer = "apps.oygul.customer:run"
-oygul-merchant = "apps.oygul.merchant:run"
-anfa-all = "apps.anfa.main:run"
-anfa-bot = "apps.anfa.main:run_bot"
-anfa-userbot = "apps.anfa.main:run_userbot"
-anfa-sync = "apps.anfa.main:run_sync"
-byd-all = "apps.byd.main:run"
-byd-userbot = "apps.byd.main:run_userbot"
-byd-operator = "apps.byd.main:run_operator"
 maskan-all = "apps.maskan.main:run"
 maskan-payments-api = "apps.maskan.payments_api:run"
 maskan-userbot = "apps.maskan.main:run_userbot"

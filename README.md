@@ -15,10 +15,6 @@ db/                      Postgres backend (REQUIRED — set DATABASE_URL): store
                          LangGraph checkpointer, Alembic migrations
 
 apps/
-├── oygul/               Flower shop — customer agent (Lola) + merchant catalog agent
-├── anfa/                Clinic (Anfa, Tashkent) — service-catalog advisor (Excel-fed) + KB sync
-├── byd/                 Detox clinic (BYD Medical) — 8-stage sales funnel, deal
-│                        scheduler, Bitrix24 mirror, PDF booking voucher
 └── maskan/              Grave care (Maskan) — care advisor in front of the existing
                          Flutter app + Django backend; care scheduler + order watcher
 ```
@@ -35,18 +31,9 @@ docker compose up -d                    # start Postgres
 uv run alembic upgrade head             # create Postgres schema (needs DATABASE_URL set)
 
 # Tenant entrypoints (defined in pyproject.toml)
-uv run oygul-customer                   # run Lola on Telegram user account
-uv run oygul-merchant                   # run merchant catalog bot
-uv run anfa-all                        # run anfa bot + userbot + sync loop
-uv run anfa-bot                        # or individually
-uv run anfa-userbot
-uv run anfa-sync
-uv run byd-all                         # byd userbot + operator bot + deal scheduler
 uv run maskan-all                      # maskan userbot + operator bot + scheduler + order watcher
 
 # Helper scripts
-uv run python scripts/oygul_embed.py --json bouquets.json
-uv run python scripts/anfa_telethon_login.py
 uv run python scripts/maskan_telethon_login.py
 ```
 
@@ -58,7 +45,7 @@ Two of them, over the **same** Postgres, and neither is part of the tenant runti
 |---|---|---|
 | Stack | FastAPI + React (Vite) | Django admin |
 | Extra | `uv sync --extra admin` | `uv sync --extra panel` |
-| Built for | chats, token usage, **prompt editing**, anfa Excel/Word imports | every table as a CRM: funnels, orders, price lists, the corpus |
+| Built for | chats, token usage, **prompt editing** | every table as a CRM: funnels, orders, price lists, the corpus |
 | Default port | `127.0.0.1:8100` | `127.0.0.1:8200` |
 
 Alembic remains the single owner of the shared schema. The Django panel maps the
