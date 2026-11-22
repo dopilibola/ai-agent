@@ -83,14 +83,26 @@ async def _chat_identity() -> tuple[Optional[int], str, str]:
 #     on every quote, and an order stores a *snapshot* of what was sold, so a
 #     later price edit cannot change what a client already agreed to pay.
 
+# Packages that are only sellable if a precondition holds — Ekonom is the light
+# tariff for a grave that was already cleaned within the last month, so it is
+# not a discount the agent may reach for on its own. The condition itself is in
+# the catalogue row's description (staff edit it there); this set only says
+# "do not hand this one out as the cheap entry option", which is sales logic,
+# not catalogue data.
+CONDITIONAL_SERVICE_CODES = {"pack_econom"}
+
+
 def _service_row(svc) -> dict:
-    return {
+    row = {
         "code": svc.code,
         "name": svc.name_uz,
         "name_ru": svc.name_ru,
         "description": svc.desc_uz,
         "price": svc.price,
     }
+    if svc.code in CONDITIONAL_SERVICE_CODES:
+        row["conditional"] = True
+    return row
 
 
 def _cemetery_row(row) -> dict:
@@ -145,7 +157,12 @@ async def list_services() -> str:
     if not services:
         return _fail("Narxlar ro'yxati hozircha bo'sh — xodimga murojaat qiling.")
     rows = [_service_row(s) for s in services]
-    entry = min(rows, key=lambda r: r["price"]) if rows else None
+    # The entry option is the cheapest package we may offer *unprompted*: a
+    # conditional tariff quoted to a client whose grave has not been touched in
+    # years is the wrong job at the wrong price, and the complaint arrives after
+    # the caretaker is already there.
+    offerable = [r for r in rows if not r.get("conditional")]
+    entry = min(offerable or rows, key=lambda r: r["price"]) if rows else None
     return _dump({
         "success": True,
         "services": rows,
@@ -159,6 +176,11 @@ async def list_services() -> str:
             "«расмийлаштирайликми?» deb so'rama."
         ),
         "entry_option": entry,
+        "conditional_rule": (
+            "`conditional: true` bo'lgan to'plamni o'zingdan taklif qilma — uni faqat "
+            "sharti bajarilgani aniq bo'lsa (tavsifda yozilgan) yoki mijoz arzonroqini "
+            "so'rasa, shartini aytib taklif qil."
+        ),
         "no_arithmetic": (
             "Faqat shu ro'yxatdagi raqamlarni ayt. Bir tashrifga bo'lish, chegirma, foiz yoki "
             "taxminiy summa hisoblash TAQIQLANADI."
@@ -426,7 +448,10 @@ async def quote_services(grave_id: int, service_codes: list[str]) -> str:
     # client should be offered is in front of the model at the moment it writes
     # the price — not something it has to remember to look up.
     alternative = None
-    cheaper = [s for s in await get_repository().list_services() if s.price < total]
+    cheaper = [
+        s for s in await get_repository().list_services()
+        if s.price < total and s.code not in CONDITIONAL_SERVICE_CODES
+    ]
     if cheaper:
         pick = min(cheaper, key=lambda s: total - s.price)
         alternative = _service_row(pick)

@@ -108,3 +108,24 @@ class ConversationEvent(Base):
         Index("ix_conversation_events_thread", "thread_id", "id"),
         Index("ix_conversation_events_created", "tenant_id", "created_at"),
     )
+
+
+class PanelSetting(Base):
+    """Operator-editable runtime knobs, shared by the panel and the bot processes.
+
+    The panel writes a row here, the bots read it through `db.settings` with a
+    short TTL cache, so a switch flipped in the browser takes effect on the
+    running bots within seconds and without a restart — the same live-edit
+    contract the prompt files already have.
+
+    One row per `(tenant_id, key)`, the value an arbitrary JSON object so a
+    knob can grow fields without a migration. `tenant_id = ''` is the
+    all-tenants default a tenant row overrides.
+    """
+
+    __tablename__ = "panel_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -59,7 +59,7 @@ from apps.maskan.models import (
     MaskanLead,
     MaskanScheduledTask,
 )
-from apps.maskan.repository import get_repository
+from apps.maskan.repository import TENANT as TENANT_ID, get_repository
 from notifications import UNMUTE_CALLBACK_PREFIX
 
 if TYPE_CHECKING:
@@ -76,6 +76,12 @@ logger = logging.getLogger(__name__)
 class FunnelContext:
     config: MaskanConfig
     customer_channel: Optional["Channel"] = None
+    # Every transport a client can be reached on. `customer_channel` stays the
+    # default; this is what makes a scheduled touch land on the transport the
+    # conversation actually happened on. A Telegram id and a WhatsApp phone
+    # number are different address spaces, so delivering to the wrong one does
+    # not fail loudly — it writes to a stranger, or to nobody.
+    customer_channels: tuple["Channel", ...] = ()
     notifier: Optional["TelegramOperatorNotifier"] = None
     mute_store: Optional["MuteStore"] = None
 
@@ -94,6 +100,29 @@ def get_context() -> FunnelContext:
         # rather than silently dropping a client message.
         raise RuntimeError("Maskan funnel context is not wired (call set_context first).")
     return _context
+
+
+async def _channel_for(chat_id: int) -> Optional["Channel"]:
+    """The channel this chat last spoke on, or the default one.
+
+    One indexed lookup per touch (`ix_conversation_events_chat`), which is
+    nothing next to the model call that follows it.
+    """
+    ctx = get_context()
+    if not ctx.customer_channels:
+        return ctx.customer_channel
+    if len(ctx.customer_channels) == 1:
+        return ctx.customer_channels[0]
+    try:
+        from db.outreach import last_channel
+
+        name = await last_channel(TENANT_ID, int(chat_id))
+    except Exception:
+        name = ""
+    for channel in ctx.customer_channels:
+        if channel.name == name:
+            return channel
+    return ctx.customer_channel or ctx.customer_channels[0]
 
 
 # ===== time helpers =========================================================
@@ -125,6 +154,29 @@ def _daytime(when: datetime) -> datetime:
 
 def _dedup(lead_id: int, stage: int, action: str, seq: int = 0) -> str:
     return f"{lead_id}:{stage}:{action}:{seq}"
+
+
+@dataclass(frozen=True)
+class Template:
+    """The pre-approved fallback for a transport that refuses free text.
+
+    WhatsApp allows an ordinary written message only within 24 hours of the
+    customer's last one; after that a scheduled touch can still go out, but only
+    as a template Meta approved in advance. That is a different message — fixed
+    wording, variables only — so the funnel names it explicitly rather than
+    letting a channel silently substitute one.
+    """
+
+    name: str
+    params: tuple[str, ...] = ()
+    language: str = "uz"
+    url_suffix: Optional[str] = None
+
+
+# Templates approved in the WhatsApp Business account, by the action they back.
+# A scheduled action with no entry here simply does not go out once the window
+# has closed — which is correct: there is nothing approved to send.
+TEMPLATES = {"operator_repeat": "takroriy_parvarish_taklifi_v1"}
 
 
 # Chat-silence follow-ups: one a few hours after the client's last message, one
@@ -181,7 +233,7 @@ async def _compose_or_fallback(
     convey: str,
     fallback: str,
     must_include: tuple[str, ...] = (),
-) -> str:
+) -> tuple[str, bool]:
     """Compose a scripted touch THROUGH the customer agent so it comes out in the
     client's own language and tone — Maskan's clients write Uzbek, Russian, or a
     mix, and a fixed-language template would break that.
@@ -190,17 +242,22 @@ async def _compose_or_fallback(
     verbatim if composition is unavailable, so the client always gets something;
     `must_include` fragments (the payment link above all) are appended if the
     model dropped them, so critical data can never go missing.
+
+    Returns `(text, composed)` — `composed` is False when the fallback was used,
+    which the caller needs because `Agent.compose` logs what it wrote and a
+    fallback would otherwise leave no trace in the corpus.
     """
-    ctx = get_context()
+    channel = await _channel_for(chat_id)
     text = ""
-    if ctx.customer_channel is not None:
-        text = await ctx.customer_channel.compose_outbound(int(chat_id), convey)
+    if channel is not None:
+        text = await channel.compose_outbound(int(chat_id), convey)
+    composed = bool(text)
     if not text:
         text = fallback
     for frag in must_include:
         if frag and frag not in text:
             text = text.rstrip() + "\n" + frag
-    return text
+    return text, composed
 
 
 async def _send_client_directed(
@@ -209,29 +266,81 @@ async def _send_client_directed(
     convey: str,
     fallback: str,
     must_include: tuple[str, ...] = (),
+    template: Optional[Template] = None,
 ) -> None:
     """Compose (via the customer agent) and send a scripted funnel touch.
 
     Bypasses the mute gate by design (compose + send_text don't go through
     dispatch) — these are pre-scripted touches, not the AI holding a conversation.
+
+    If the transport will not take free text right now (WhatsApp's 24-hour
+    window), the approved `template` is sent instead. The check happens *before*
+    composing: asking the model to write a message the platform cannot deliver
+    costs money and produces nothing. With no template for this action, the touch
+    raises — the scheduler parks it as failed and the panel shows it, which is
+    the honest outcome. Silently dropping it is the thing to avoid.
     """
-    ctx = get_context()
-    if ctx.customer_channel is None:
+    channel = await _channel_for(chat_id)
+    if channel is None:
         raise RuntimeError("customer channel not wired")
-    text = await _compose_or_fallback(
+
+    if not await channel.freeform_allowed(int(chat_id)):
+        if template is None:
+            raise RuntimeError(
+                f"{channel.name}: outside the free-text window for chat {chat_id} "
+                "and no approved template for this touch"
+            )
+        sent = await channel.send_template(
+            int(chat_id),
+            name=template.name,
+            language=template.language,
+            body_params=template.params,
+            url_suffix=template.url_suffix,
+        )
+        if not sent:
+            raise RuntimeError(
+                f"{channel.name}: template {template.name!r} was refused for chat {chat_id}"
+            )
+        # The client received something, so the corpus has to say so — the daily
+        # cap and the panel both read it. The text is the template's, not ours.
+        from db.outreach import log_sent_touch
+
+        await log_sent_touch(
+            tenant_id=TENANT_ID,
+            chat_id=int(chat_id),
+            thread_id=channel.thread_id(int(chat_id)),
+            text=f"[shablon: {template.name}] " + ", ".join(template.params),
+            action=template.name,
+            channel=getattr(channel, "name", None),
+        )
+        return
+
+    text, composed = await _compose_or_fallback(
         chat_id, convey=convey, fallback=fallback, must_include=must_include
     )
-    await ctx.customer_channel.send_text(int(chat_id), text)
+    await channel.send_text(int(chat_id), text)
+    if not composed:
+        # The composer logs what it wrote; a template send would leave the
+        # corpus (and the daily cap that reads it) blind to a real message.
+        from db.outreach import log_sent_touch
+
+        await log_sent_touch(
+            tenant_id=TENANT_ID,
+            chat_id=int(chat_id),
+            thread_id=channel.thread_id(int(chat_id)),
+            text=text,
+            channel=getattr(channel, "name", None),
+        )
     await _record_outbound(chat_id, text)
 
 
 async def _record_outbound(chat_id: int, note: str) -> None:
     """Mirror an out-of-band send into the agent's conversation thread so the AI
     has the full history on handback. Best-effort — never blocks a send."""
-    ctx = get_context()
-    if ctx.customer_channel is not None and note:
+    channel = await _channel_for(chat_id)
+    if channel is not None and note:
         try:
-            await ctx.customer_channel.record_outbound(int(chat_id), note)
+            await channel.record_outbound(int(chat_id), note)
         except Exception:
             logger.debug("record_outbound failed for %s", chat_id, exc_info=True)
 
@@ -240,10 +349,10 @@ async def _send_client_photos(chat_id: int, urls: list[str]) -> None:
     urls = [u for u in urls if u]
     if not urls:
         return
-    ctx = get_context()
-    if ctx.customer_channel is None:
+    channel = await _channel_for(chat_id)
+    if channel is None:
         raise RuntimeError("customer channel not wired")
-    await ctx.customer_channel.send_photos(int(chat_id), urls)
+    await channel.send_photos(int(chat_id), urls)
 
 
 async def _notify(text: str, *, reply_markup: Optional[dict] = None) -> int:
@@ -1145,7 +1254,114 @@ async def _exec_memorial(lead: MaskanLead, task: MaskanScheduledTask) -> None:
     )
 
 
+async def _exec_operator_followup(lead, task: MaskanScheduledTask) -> None:
+    """A message a person scheduled from the admin panel ("write to them in a
+    month"), not one the funnel decided to send.
+
+    Deliberately has no script of its own: the operator's note says what to
+    raise, and the agent writes it in the client's own language off the real
+    conversation. With no note it is the plainest thing there is — ask whether
+    the grave needs looking after again.
+    """
+    fresh = await get_repository().get_active_lead_by_chat(task.chat_id)
+    name = (fresh.name if fresh else "") or (lead.name if lead else "")
+    grave = (fresh.grave_label if fresh else "") or (lead.grave_label if lead else "")
+    note = str((task.payload or {}).get("note") or "").strip()
+    whose = f"{grave} qabri" if grave else "qabr"
+    convey = (
+        f"Operator so'radi, mijozga qayta yoz. Mavzu: {note}"
+        if note
+        else (
+            f"Mijoz bilan avval gaplashgan eding. {whose} yana parvarish talab "
+            "qiladimi, deb qisqa va bosiq so'ra. Bosim qilma."
+        )
+    )
+    await _send_client_directed(
+        task.chat_id,
+        convey=convey,
+        fallback=(note or msg.s8_recurring(name, grave, "once")),
+    )
+
+
+async def _exec_operator_repeat(lead, task: MaskanScheduledTask) -> None:
+    """The repeat-care offer, armed a month back when somebody marked this
+    client as having bought.
+
+    Not the funnel writing on its own initiative — a person asserted a sale and
+    that assertion is what scheduled this — so it carries `source: operator` and
+    passes the "the bot never writes first" switch, subject to quiet hours.
+    """
+    fresh = await get_repository().get_latest_lead_by_chat(task.chat_id)
+    name = (fresh.name if fresh else "") or (lead.name if lead else "")
+    grave = (fresh.grave_label if fresh else "") or (lead.grave_label if lead else "")
+    whose = f"{grave} qabri" if grave else "qabr"
+    await _send_client_directed(
+        task.chat_id,
+        convey=(
+            "Bir oy oldin bu mijoz uchun parvarish qilingan edi. Iliq va bosiq "
+            f"eslatma yoz: oradan bir oy o'tdi, {whose} bu oy ham tartibga "
+            "keltirilsinmi deb so'ra. Bitta qisqa taklif — bosim qilma, "
+            "shoshirma va narx aytma."
+        ),
+        fallback=msg.s8_month_later(name, grave),
+        # A month later the 24-hour window is always shut, so on WhatsApp this
+        # touch is *always* the template. Its variables must never be empty —
+        # Meta rejects a template with a blank one.
+        template=Template(
+            name=TEMPLATES["operator_repeat"],
+            params=(name or "mijoz", grave or "qabr"),
+        ),
+    )
+
+
+async def _exec_operator_message(lead, task: MaskanScheduledTask) -> None:
+    """An operator's own words, sent verbatim, and the AI steps back.
+
+    The counterpart of what already happens on Telegram when a human types from
+    the bot's own account: the chat is muted so the agent stops answering, and
+    the message is filed under the `operator` role so the agent has the human's
+    side of the conversation when control comes back — and so the learning loop
+    can harvest it later.
+
+    Not composed, not rewritten: an operator who typed a sentence meant that
+    sentence.
+    """
+    text = str((task.payload or {}).get("text") or "").strip()
+    if not text:
+        return
+    chat_id = int(task.chat_id)
+    channel = await _channel_for(chat_id)
+    if channel is None:
+        raise RuntimeError("customer channel not wired")
+    if not await channel.freeform_allowed(chat_id):
+        # WhatsApp will refuse it; say so rather than let it fail as a mystery.
+        raise RuntimeError(
+            f"{channel.name}: 24 soatlik oyna yopiq — mijoz avval yozishi kerak"
+        )
+    await channel.send_text(chat_id, text)
+
+    ctx = get_context()
+    if ctx.mute_store is not None:
+        try:
+            await ctx.mute_store.mute(chat_id)
+        except Exception:
+            logger.exception("Maskan: could not mute chat %s after an operator reply", chat_id)
+    try:
+        await channel.agent.record_user_message(
+            f"[Operator javobi]: {text}",
+            thread_id=channel.thread_id(chat_id),
+            log_role="operator",
+            log_text=text,
+        )
+    except Exception:
+        logger.debug("recording the operator reply failed for %s", chat_id, exc_info=True)
+    logger.info("Maskan: operator replied to %s on %s", chat_id, channel.name)
+
+
 ACTIONS = {
+    "operator_message": _exec_operator_message,
+    "operator_followup": _exec_operator_followup,
+    "operator_repeat": _exec_operator_repeat,
     "chat_followup1": _exec_chat_followup1,
     "chat_followup2": _exec_chat_followup2,
     "s1_followup": _exec_s1_followup,
@@ -1171,8 +1387,67 @@ ACTIONS = {
 }
 
 
-async def execute_task(task: MaskanScheduledTask) -> None:
+# Tasks whose message goes to *staff*, not to the client. The outreach pacing
+# rules are about not pestering a customer, so they must never delay an SLA
+# alert or a "this payment never arrived" check — an operator's own reminders
+# are not marketing.
+OPERATOR_ONLY_ACTIONS = frozenset({"s4_operator_check", "s5_sla", "s6_sla"})
+
+# A person pressed send and is waiting. Quiet hours and daily caps exist to stop
+# the funnel pestering people on its own; holding a human's own reply until 09:00
+# would be absurd, so these skip the gate entirely.
+IMMEDIATE_ACTIONS = frozenset({"operator_message"})
+
+
+async def _outreach_gate(task: MaskanScheduledTask) -> bool:
+    """Ask `db.outreach` whether this client-facing touch may go out now.
+
+    Returns True to run the task. Otherwise the row is either moved to a later
+    time (quiet hours, daily cap) or cancelled outright — the latter when the
+    funnel is writing on its own initiative and that is switched off, because a
+    deferral would park it in the queue for as long as the switch stays off.
+    Never blocks staff-facing tasks, and never blocks on its own failure: an
+    unreadable policy sends, exactly as it did before.
+    """
+    if task.action_type in OPERATOR_ONLY_ACTIONS or task.action_type in IMMEDIATE_ACTIONS:
+        return True
+    try:
+        from db.outreach import check_send, is_operator_task
+
+        decision = await check_send(
+            TENANT_ID,
+            int(task.chat_id),
+            MASKAN_TZ,
+            now=_now(),
+            operator_initiated=is_operator_task(task.payload),
+        )
+    except Exception:
+        logger.debug("outreach gate failed for task %s", task.id, exc_info=True)
+        return True
+    if decision.send:
+        return True
+    if decision.drop:
+        await get_repository().cancel_task(task.id, reason=decision.reason)
+        logger.info(
+            "Maskan task %s (%s) cancelled — %s",
+            task.id, task.action_type, decision.reason,
+        )
+        return False
+    when = decision.retry_at or (_now() + timedelta(hours=1))
+    await get_repository().defer_task(task.id, when, reason=decision.reason)
+    logger.info(
+        "Maskan task %s (%s) deferred to %s — %s",
+        task.id, task.action_type, when.isoformat(timespec="minutes"), decision.reason,
+    )
+    return False
+
+
+async def execute_task(task: MaskanScheduledTask) -> bool:
     """Run one claimed task. Raises on failure so the scheduler can retry/park it.
+
+    Returns False when the task was **deferred** rather than run — the outreach
+    pacing gate moved it to a later time and it is pending again, so the caller
+    must not mark it done.
 
     Skips leads that went terminal since the task was scheduled — a defensive
     backstop on top of cancel-on-close.
@@ -1180,16 +1455,19 @@ async def execute_task(task: MaskanScheduledTask) -> None:
     action = ACTIONS.get(task.action_type)
     if action is None:
         logger.error("Unknown Maskan action_type %r (task %s)", task.action_type, task.id)
-        return
+        return True
+    if not await _outreach_gate(task):
+        return False
     if not task.lead_id:
         # Chat-addressed task — the executor does its own fire-time checks.
         await action(None, task)
-        return
+        return True
     lead = await get_repository().get_lead(task.lead_id)
     if lead is None:
         logger.warning("Maskan task %s references missing lead %s", task.id, task.lead_id)
-        return
+        return True
     if lead.status == STATUS_CLOSED:
         logger.info("Maskan task %s skipped — lead %s is closed", task.id, lead.id)
-        return
+        return True
     await action(lead, task)
+    return True

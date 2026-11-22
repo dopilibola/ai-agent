@@ -1,0 +1,29 @@
+# The Django admin panel (django_admin/), served on teamworks.uz.
+#
+# A separate unit from the bots on purpose: the panel is where a person looks
+# when something is wrong, so it must not share a process with the thing that
+# might be wrong. It reads the same Postgres and the same prompt files, and it
+# holds no Telegram session — restarting it never interrupts a conversation.
+#
+# Install:
+#   sudo cp deploy/ai-agent-panel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ai-agent-panel
+[Unit]
+Description=ai-agent: Django admin panel (teamworks.uz)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marketing_ttlk_co_uk
+Group=marketing_ttlk_co_uk
+WorkingDirectory=/home/marketing_ttlk_co_uk/ai-agent
+Environment=PATH=/home/marketing_ttlk_co_uk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/marketing_ttlk_co_uk/.local/bin/uv run --extra panel django-panel
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

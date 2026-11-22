@@ -1,0 +1,16 @@
+{% load panel_extras %}
+{% comment %}
+Never hide rows silently: say how many the eval filter took out, and offer the
+way back. See crm/analytics.py EVAL_CHAT_MIN for what counts as one.
+{% endcomment %}
+{% if eval_hidden %}
+  <p class="small muted" style="margin:-.6rem 0 1.1rem">
+    {{ eval_hidden }} {% t "ta test chati hisobga olinmadi" %} ·
+    <a href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}days={{ days }}&amp;eval=1">{% t "ko‘rsatish" %}</a>
+  </p>
+{% elif include_eval %}
+  <div class="note warn">
+    {% t "Test chatlari ham hisobga olinmoqda —" %}
+    <a href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}days={{ days }}">{% t "yashirish" %}</a>
+  </div>
+{% endif %}

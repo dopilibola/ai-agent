@@ -841,6 +841,52 @@ class MaskanRepository:
             )
             await session.commit()
 
+    async def defer_task(self, task_id, when: datetime, *, reason: str = "") -> None:
+        """Put a claimed task back in the queue for a later time.
+
+        Used by the outreach pacing gate (`db/outreach.py`): the touch is still
+        wanted, only not right now — at night, over the daily cap, or while an
+        operator has automatic messages switched off. The claim's `attempts`
+        increment is rolled back, because a deferral is not a failed try and
+        must never push a task towards `failed`.
+        """
+        from sqlalchemy import func, update
+
+        async with get_sessionmaker()() as session:
+            await session.execute(
+                update(MaskanScheduledTask)
+                .where(MaskanScheduledTask.id == int(task_id))
+                .values(
+                    status=TASK_PENDING,
+                    scheduled_for=when,
+                    attempts=func.greatest(MaskanScheduledTask.attempts - 1, 0),
+                    last_error=(f"kutilmoqda: {reason}" if reason else None),
+                )
+            )
+            await session.commit()
+
+    async def cancel_task(self, task_id, *, reason: str = "") -> None:
+        """Drop a claimed task for good.
+
+        Used when the outreach gate says the funnel may not write to clients on
+        its own initiative: deferring would leave the row in the queue for as
+        long as that stays true, which is indefinitely. The reason is kept on
+        the row so the panel can say why it never went out.
+        """
+        from sqlalchemy import update
+
+        async with get_sessionmaker()() as session:
+            await session.execute(
+                update(MaskanScheduledTask)
+                .where(MaskanScheduledTask.id == int(task_id))
+                .values(
+                    status=TASK_CANCELLED,
+                    executed_at=_now(),
+                    last_error=(reason or "")[:2000] or None,
+                )
+            )
+            await session.commit()
+
     async def get_task(self, task_id) -> Optional[MaskanScheduledTask]:
         async with get_sessionmaker()() as session:
             return await session.get(MaskanScheduledTask, int(task_id))

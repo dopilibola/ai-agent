@@ -1,0 +1,100 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+The agent's own rules. One textarea, because that is what the file is — the
+value of this page is not the editor, it is that saving reaches the running bot
+without anyone opening a terminal.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Bot qoidalari" %}</h1>
+  <p>{% t "Bot nima deyishini shu matn belgilaydi. Saqlagan zahoti ishlaydi — qayta ishga tushirish shart emas." %}</p>
+</div>
+
+<div class="toolbar">
+  {% if tenants|length > 1 %}
+    <form method="get" style="margin:0">
+      <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+        {% for t in tenants %}<option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </form>
+  {% endif %}
+  {% for it in items %}
+    <a class="btn small {% if info and it.key == info.key %}primary{% endif %}"
+       href="?tenant={{ tenant }}&amp;key={{ it.key }}">{{ it.label|t }}</a>
+  {% endfor %}
+</div>
+
+{% if not info %}
+  <div class="card"><p class="empty">{% t "Bu bo‘lim uchun tahrirlanadigan qoida yo‘q." %}</p></div>
+{% else %}
+  {% if missing %}
+    <div class="note bad">{% t "Fayl serverda topilmadi:" %} {{ info.path }}</div>
+  {% endif %}
+  {% if restore_content %}
+    <div class="note warn">
+      {% t "Eski nusxa ko‘rsatilmoqda. «Saqlash» bosilsa aynan shu matn tiklanadi." %}
+      <a href="?tenant={{ tenant }}&amp;key={{ info.key }}">{% t "bekor qilish" %}</a>
+    </div>
+  {% endif %}
+
+  <div class="grid split">
+    <div class="card">
+      <h2>{{ info.label|t }}</h2>
+      <p class="muted small" style="margin:-.5rem 0 .9rem">{{ info.note|t }}</p>
+      <form method="post" action="{% url 'admin:prompts_save' %}">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="hidden" name="key" value="{{ info.key }}">
+        <textarea name="content" class="prompt-edit" spellcheck="false"
+                  >{% if restore_content %}{{ restore_content }}{% else %}{{ content }}{% endif %}</textarea>
+        <div class="card-foot">
+          <button type="submit" class="btn primary">{% t "Saqlash" %}</button>
+          <span class="small muted" style="margin-left:.6rem">{% t "Keyingi javobdanoq kuchga kiradi." %}</span>
+        </div>
+      </form>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>{% t "Ehtiyot bo‘ling" %}</h2>
+        <p class="muted small" style="margin:0">
+          {% t "Narxlar bu yerda emas, katalogda — matnga narx yozmang." %}
+          <code>{now_iso}</code>, <code>{weekday}</code> — {% t "bu belgilarni o‘chirmang, ular har javobda joriy vaqtga almashtiriladi." %}
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>{% t "Oldingi nusxalar" %}</h2>
+        {% if history %}
+          <table class="table compact">
+            <tbody>
+            {% for name, when in history %}
+              <tr>
+                <td>{{ when }}</td>
+                <td class="num"><a href="?tenant={{ tenant }}&amp;key={{ info.key }}&amp;restore={{ name }}">{% t "ko‘rish" %}</a></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty">{% t "Hali saqlangan nusxa yo‘q." %}</p>
+        {% endif %}
+        <div class="card-foot small muted">
+          {% t "Har saqlashda oldingi matn shu yerga tushadi (oxirgi 10 tasi)." %}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>{% t "Fayl" %}</h2>
+        <p class="muted small" style="margin:0;word-break:break-all"><code>{{ info.path }}</code></p>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

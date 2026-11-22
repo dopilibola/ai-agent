@@ -58,8 +58,10 @@ class DealScheduler:
 
         for task in tasks:
             try:
-                await execute_task(task)
-                await repo.mark_task_done(task.id)
+                # False = the outreach pacing gate moved the task to a later
+                # time and it is pending again; marking it done would drop it.
+                if await execute_task(task):
+                    await repo.mark_task_done(task.id)
             except Exception as exc:
                 logger.exception(
                     "BYD task %s (%s) failed on attempt %d",

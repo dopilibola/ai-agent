@@ -1,0 +1,174 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+Automatic messages: the rule, the queue, and what actually went out — one page,
+because answering those three questions in three places is how a funnel ends up
+sending things nobody meant to send.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Avto-xabarlar" %}</h1>
+  <p>{% t "Bot mijozga o‘zi yozadimi, qachon yozadi va nima yozgan." %}</p>
+</div>
+
+{% if tenants|length > 1 %}
+  <form class="toolbar" method="get">
+    <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+      {% for t in tenants %}
+        <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endif %}
+
+{% if policy.enabled %}
+  <div class="note warn">
+    <b>{% t "Bot o‘zi birinchi yozadi." %}</b> {% t "Ta’qib xabarlari yoqilgan —" %}
+    {{ policy.quiet_from }}:00–{{ policy.quiet_to }}:00 {% t "orasida, bir mijozga kuniga" %}
+    {{ policy.daily_cap }} {% t "tagacha." %}
+  </div>
+{% else %}
+  <div class="note good">
+    <b>{% t "Bot hech qachon birinchi yozmaydi." %}</b>
+    {% t "Mijoz yozganda odatdagidek javob beradi; operator mijoz sahifasida rejalashtirgan xabar esa baribir yuboriladi." %}
+  </div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">{% t "Navbatda" %}</div>
+    <div class="stat-value">{{ counts.pending }}</div>
+    <div class="stat-hint">
+      {% if counts.next_at %}{% t "eng yaqini" %} {{ counts.next_at|date:"d.m H:i" }}{% else %}{% t "rejada yo‘q" %}{% endif %}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">{% t "Yuborilgan" %}</div>
+    <div class="stat-value">{{ counts.sent_week }}</div>
+    <div class="stat-hint">{% t "oxirgi 7 kunda" %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">{% t "Keyinga surilgan" %}</div>
+    <div class="stat-value">{{ counts.waiting }}</div>
+    <div class="stat-hint">{% t "qoida bo‘yicha kutmoqda" %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">{% t "Xato" %}</div>
+    <div class="stat-value {% if counts.failed %}bad{% endif %}">{{ counts.failed }}</div>
+    <div class="stat-hint">{% t "yuborib bo‘lmagan" %}</div>
+  </div>
+</div>
+
+<div class="grid split">
+  <div class="card flush">
+    <h2>{% t "Navbatdagi xabarlar" %} <span class="muted">— {{ queued|length }}</span></h2>
+    <div class="table-scroll">
+    <table class="table">
+      <thead><tr><th>{% t "Qachon" %}</th><th>{% t "Kimga" %}</th><th>{% t "Nima" %}</th><th></th></tr></thead>
+      <tbody>
+      {% for t in queued %}
+        <tr>
+          <td class="sub nowrap">
+            {{ t.scheduled_for|date:"d.m H:i" }}
+            {% if t.waiting %}<br><span class="warn">{% t "surilgan" %}</span>{% endif %}
+          </td>
+          <td class="who"><a href="{% url 'admin:user_detail' t.tenant_id t.chat_id %}">{{ t.who }}</a></td>
+          <td>
+            {{ t.label|t }}
+            {% if t.to_operator %}<span class="badge plain">{% t "operatorga" %}</span>{% endif %}
+            {% if t.by_operator %}<span class="badge ok">{% t "operator rejalashtirgan" %}</span>{% endif %}
+            {% if t.last_error and not t.waiting %}<div class="small bad">{{ t.last_error }}</div>{% endif %}
+          </td>
+          <td class="num nowrap">
+            <form method="post" action="{% url 'admin:outreach_task' %}" style="display:inline">
+              {% csrf_token %}
+              <input type="hidden" name="tenant" value="{{ tenant }}">
+              <input type="hidden" name="task_id" value="{{ t.task_id }}">
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" name="action" value="now" class="link-btn">{% t "hozir" %}</button>
+              <button type="submit" name="action" value="postpone" class="link-btn">{% t "+1 kun" %}</button>
+              <button type="submit" name="action" value="cancel" class="link-btn danger">{% t "bekor" %}</button>
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4"><p class="empty">{% t "Navbatda xabar yo‘q." %}</p></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2>{% t "Qoidalar" %}</h2>
+      <form method="post" action="{% url 'admin:outreach_save' %}">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+
+        <label class="switch">
+          <input type="checkbox" name="enabled" {% if policy.enabled %}checked{% endif %}>
+          <span><b>{% t "Bot o‘zi birinchi yozsin" %}</b>
+            <div class="small muted">{% t "O‘chiq bo‘lsa bot hech qachon birinchi yozmaydi — na eslatma, na ta’qib." %}</div>
+          </span>
+        </label>
+
+        <div class="field">
+          <label for="qf">{% t "Faqat shu soatlarda" %}</label>
+          <select id="qf" name="quiet_from">
+            {% for h in hours %}<option value="{{ h }}" {% if h == policy.quiet_from %}selected{% endif %}>{{ h }}:00</option>{% endfor %}
+          </select>
+          —
+          <select name="quiet_to">
+            {% for h in hours %}<option value="{{ h }}" {% if h == policy.quiet_to %}selected{% endif %}>{{ h }}:00</option>{% endfor %}
+          </select>
+          <div class="help">{% t "Tashqarida qolgani ertalabki soatga suriladi, o‘chib ketmaydi. Bu operator rejalashtirgan xabarga ham tegishli." %}</div>
+        </div>
+
+        <div class="field">
+          <label for="cap">{% t "Bir mijozga kuniga ko‘pi bilan" %}</label>
+          <input id="cap" type="number" name="daily_cap" min="1" max="20" value="{{ policy.daily_cap }}" style="width:6rem">
+        </div>
+
+        <div class="field">
+          <label for="gap">{% t "Xabarlar orasida kamida" %}</label>
+          <input id="gap" type="number" name="min_gap_minutes" min="0" max="1440" step="30" value="{{ policy.min_gap_minutes }}" style="width:6rem"> {% t "daqiqa" %}
+          <div class="help">{% t "Bu ikki chegara faqat botning o‘z ta’qib xabarlariga tegishli." %}</div>
+        </div>
+
+        <button type="submit" class="btn primary">{% t "Saqlash" %}</button>
+        <div class="small muted" style="margin-top:.6rem">
+          {% t "O‘zgarish bir necha soniyada ishlayotgan botga yetadi." %}
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>{% t "Xabar matni qayerda?" %}</h2>
+      <p class="muted small" style="margin:0">
+        {% t "Tayyor shablon yo‘q: har bir xabarni AI yuborish paytida mijozning o‘z tilida yozadi. Qanday chiqqanini pastdagi ro‘yxatdan o‘qing. Bitta mijozga xabar rejalashtirish uchun uning sahifasini oching." %}
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="card log">
+  <h2>{% t "Yaqinda yuborilganlar" %}</h2>
+  {% for e in recent %}
+    <div class="msg outbound">
+      <div class="msg-head">
+        <a href="{% url 'admin:user_detail' e.tenant_id e.chat_id %}">{{ e.chat_id }}</a>
+        · {{ e.created_at|date:"d.m.Y H:i" }}
+      </div>
+      <div class="msg-body">{{ e.text|default:"—" }}</div>
+    </div>
+  {% empty %}
+    <p class="empty">{% t "Hali avto-xabar yuborilmagan." %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

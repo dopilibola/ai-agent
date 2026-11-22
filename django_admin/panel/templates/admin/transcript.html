@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+One conversation, in order, tool calls included. `conversation_events` stores
+one row per event, so a changelist shows fragments newest-first; this is the
+view you want when someone says the bot answered wrong.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "To‘liq yozuv" %}</h1>
+  <p>
+    {{ thread_id }}
+    {% if profile %} · {{ profile.name|default:"" }}{% if profile.username %} · @{{ profile.username }}{% endif %}{% endif %}
+    · {{ events|length }} {% t "ta hodisa" %}
+  </p>
+</div>
+
+<div class="toolbar">
+  <a class="btn small" href="{{ changelist_url }}">{% t "Jadval ko‘rinishi" %}</a>
+</div>
+
+<div class="card">
+{% for e in events %}
+  <div class="tr-msg {{ e.role }}">
+    <div class="tr-head">
+      {{ e.role }}{% if e.agent %} · {{ e.agent }}{% endif %}{% if e.lang %} · {{ e.lang }}{% endif %}
+      · {{ e.created_at|date:"Y-m-d H:i:s" }} · #{{ e.id }}
+    </div>
+    <div class="tr-body">{{ e.text|default:"—" }}</div>
+    {% if e.meta %}<pre class="tr-json">{{ e.meta }}</pre>{% endif %}
+  </div>
+{% empty %}
+  <p class="empty">{% t "Bu suhbat bo‘yicha hodisa topilmadi." %}</p>
+{% endfor %}
+</div>
+{% endblock %}

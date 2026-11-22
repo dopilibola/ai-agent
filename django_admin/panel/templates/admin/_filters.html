@@ -1,0 +1,18 @@
+{% load panel_extras %}
+{% comment %}
+Period picker, plus the tenant selector only when there is more than one — a
+dropdown with a single option is furniture, not a control.
+{% endcomment %}
+{% if tenants|length > 1 %}
+  <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+    <option value="">{% t "barcha bo‘limlar" %}</option>
+    {% for t in tenants %}
+      <option value="{{ t }}" {% if t == tenant %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+{% endif %}
+<span class="spacer"></span>
+{% for p in periods %}
+  <a class="btn small {% if p == days %}primary{% endif %}"
+     href="?{% if tenant %}tenant={{ tenant }}&amp;{% endif %}days={{ p }}">{{ p }} {% t "kun" %}</a>
+{% endfor %}

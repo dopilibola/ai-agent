@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Callable, Optional, Union
 
@@ -45,7 +46,31 @@ _COMPOSER_SYSTEM = (
     "warm, human, concise tone of the conversation. No markdown. Output ONLY the "
     "text of the message to send — no quotes, no preamble, no explanation. Do not "
     "invent facts beyond the instruction; include any links/addresses it gives "
-    "exactly as written."
+    "exactly as written.\n"
+    # This message arrives unprompted, so it is the one most at risk of reading
+    # like an automated blast. It must read like the same person who was already
+    # talking to them simply writing again.
+    "It must read like a normal chat message from the person the customer was "
+    "already talking to — never like a notification, an SMS blast, a newsletter "
+    "or a system alert. So: 1-3 short sentences, no emoji, no ALL-CAPS, no "
+    "headings or subject lines, no bullet lists, no separator lines, no "
+    "signature or company name at the end, no 'Hurmatli mijoz' / 'Dear customer' "
+    "style openings, no 'Eslatma:' / 'Напоминание:' / 'Reminder:' labels, and no "
+    "urgency or promotional wording. Just say the thing, plainly, and stop."
+)
+
+# Characters that only ever get into a composed touch by the model deciding it
+# is writing a notification. Stripped rather than re-prompted for: a leading 🔔
+# or a **bold** line is the whole difference between "a person wrote to me" and
+# "an app pinged me", and it is cheaper to remove than to ask again.
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2190-\u21FF\u2B00-\u2BFF"
+    "\u2022\uFE0F\u200D\u25A0-\u25FF]+"
+)
+
+_NOTIFICATION_PREFIXES = (
+    "eslatma:", "напоминание:", "reminder:", "уведомление:", "xabarnoma:",
+    "bildirishnoma:", "notification:", "info:", "diqqat:", "внимание:",
 )
 
 
@@ -60,6 +85,38 @@ def _text_of(content: Any) -> str:
             if isinstance(part, dict) and part.get("type") == "text"
         )
     return ""
+
+
+def _plain_message(text: str) -> str:
+    """Strip the notification costume off a composed outbound message.
+
+    The prompt already asks for a plain chat message; this removes what slips
+    through anyway — a bold heading, a leading bell emoji, an 'Eslatma:' label,
+    a horizontal rule, a bullet list. Content is never removed, only its
+    formatting, so a message that was fine comes out unchanged.
+    """
+    if not text:
+        return ""
+    lines: list[str] = []
+    for raw in text.replace("\r\n", "\n").split("\n"):
+        line = _EMOJI_RE.sub("", raw).strip()
+        if set(line) and set(line) <= set("-—–_=*~•·"):
+            continue  # a separator rule: pure decoration
+        # A bullet only counts when the marker is followed by a space, so a
+        # phone number ("+998…") or a negative amount keeps its first character.
+        if line[:2] in ("• ", "· ", "* ", "- ", "+ ", "– ", "— "):
+            line = line[2:].strip()
+        line = line.replace("**", "").replace("__", "")
+        lowered = line.casefold()
+        for prefix in _NOTIFICATION_PREFIXES:
+            if lowered.startswith(prefix):
+                line = line[len(prefix):].strip()
+                break
+        if line:
+            lines.append(line)
+    # One blank line between paragraphs at most — a wall of spacing reads as a
+    # formatted announcement rather than something typed into a chat.
+    return "\n".join(lines).strip()
 
 
 def _aggregate_usage(usage_cb: UsageMetadataCallbackHandler) -> RunTokens:
@@ -387,7 +444,7 @@ class Agent:
             logger.exception("compose model call failed for %s", thread_id)
             return ""
         await self._record_token_usage(usage_cb)
-        text = _text_of(ai.content).strip()
+        text = _plain_message(_text_of(ai.content))
         await self._log_outbound(thread_id=thread_id, directive=directive, text=text)
         return text
 

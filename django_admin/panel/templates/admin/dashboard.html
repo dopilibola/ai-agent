@@ -1,0 +1,112 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+The home page is a worklist, not a report. The first thing on it is the list of
+people to talk to today; the charts come after, because "how did the month go"
+can wait until after "who is about to buy and hasn't heard from us".
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Bosh sahifa" %}</h1>
+  <p>{% t "Bugun kim bilan gaplashish kerakligi — eng yuqoridan boshlab." %}</p>
+</div>
+
+<form class="toolbar" method="get">{% include "admin/_filters.html" %}</form>
+{% include "admin/_evalnote.html" %}
+
+<div class="stats">
+  {% for label, value, hint in kpis %}
+    <div class="stat">
+      <div class="stat-label">{{ label }}</div>
+      <div class="stat-value">{{ value }}</div>
+      <div class="stat-hint">{{ hint }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="card flush" style="margin-bottom:1.4rem">
+  <h2>{% t "Bugun gaplashish kerak" %}</h2>
+  <div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>{% t "Kim" %}</th>
+        <th style="width:9rem">{% t "Ehtimol" %}</th>
+        <th>{% t "Holati" %}</th>
+        <th>{% t "Oxirgi faollik" %}</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in hot_rows %}
+      <tr>
+        <td class="who">
+          <a href="{% url 'admin:user_detail' r.tenant_id r.chat_id %}">{{ r.label }}</a>
+          <div class="sub">{% if r.username %}@{{ r.username }}{% else %}{{ r.chat_id }}{% endif %}</div>
+        </td>
+        <td>{% include "admin/_prob.html" with row=r %}</td>
+        <td>
+          <span class="badge" style="--c:{{ r.segment_obj.color }}"><i></i>{{ r.segment_obj.label|t }}</span>
+          {% if r.muted_at %}<span class="badge warn">{% t "operator" %}</span>{% endif %}
+          <div class="sub">
+            {% if r.lead_stage %}{{ r.lead_stage|bosqich }}{% else %}{% t "murojaat ochilmagan" %}{% endif %}{% if r.answered_last %} · <span class="good">{% t "javob bergan" %}</span>{% endif %}
+          </div>
+        </td>
+        <td class="sub">{{ r.last_seen|date:"d.m.Y H:i"|default:"—" }}</td>
+        <td class="num">
+          <a class="btn small" href="{{ r.contact_url }}" target="_blank" rel="noopener">{{ r.contact_label }}</a>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5"><p class="empty">{% t "Hozircha faol mijoz yo‘q." %}</p></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="card-foot"><a href="{% url 'admin:users' %}">{% t "Barcha mijozlar" %} →</a></div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>{% t "Kategoriyalar" %}</h2>
+    {{ segment_bar }}
+  </div>
+  <div class="card">
+    <h2>{% t "Voronka" %} <span class="muted">{% t "— faol murojaatlar" %}</span></h2>
+    {{ funnel }}
+  </div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>{% t "Xabarlar" %} <span class="muted">— {% t "oxirgi" %} {{ days }} {% t "kun" %}</span></h2>
+    {{ messages_chart }}
+    {% include "admin/_legend.html" %}
+  </div>
+  <div class="card">
+    <h2>{% t "To‘langan buyurtmalar" %} <span class="muted">— {% t "oxirgi" %} {{ days }} {% t "kun" %}</span></h2>
+    {{ revenue_chart }}
+    <div class="card-foot">
+      {% t "Jami" %} <b>{{ revenue_total|son }}</b> so‘m ·
+      <a href="{% url 'admin:analytics' %}">{% t "to‘liq tahlil" %} →</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{% t "Avto-xabarlar" %}</h2>
+  <p class="muted" style="margin:0 0 .8rem">
+    Bot o‘zi birinchi yozmaydi. Navbatda <b>{{ queue.pending }}</b> ta xabar,
+    shu haftada <b>{{ queue.sent_week }}</b> tasi yuborilgan{% if queue.failed %},
+    <b class="bad">{{ queue.failed }}</b> tasi xato bilan tugagan{% endif %}.
+  </p>
+  <a class="btn" href="{% url 'admin:outreach' %}">{% t "Boshqarish" %}</a>
+  <a class="btn" href="{% url 'admin:health' %}">{% t "Tizim holati" %}</a>
+  <a class="btn" href="{% url 'admin:crm_conversationevent_changelist' %}">{% t "Jadvallar" %}</a>
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+The few `.env` values an operator changes. Everything else in that file is
+credentials and is deliberately not readable from here — see crm/env_settings.py
+for the allow-list.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Sozlamalar" %}</h1>
+  <p>{% t "Bot ishga tushganda o‘qiydigan qiymatlar. Saqlagandan keyin botni qayta ishga tushiring." %}</p>
+</div>
+
+<div class="grid split">
+  <div class="card">
+    <h2>{% t "Umumiy" %}</h2>
+    <form method="post" action="{% url 'admin:settings_env_save' %}">
+      {% csrf_token %}
+      {% for f in fields %}
+        <div class="field">
+          <label for="f-{{ f.key }}">{{ f.label|t }}</label>
+          <input id="f-{{ f.key }}" type="text" name="{{ f.key }}" value="{{ values|dictkey:f.key }}">
+          <div class="help">{{ f.help|t }}</div>
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn primary">{% t "Saqlash" %}</button>
+    </form>
+  </div>
+
+  <div class="stack">
+    <div class="note info" style="margin:0">
+      <b>{% t "Muhim." %}</b>
+      {% t "Bu qiymatlar bot ishga tushganda o‘qiladi — saqlaganingizdan keyin kuchga kirishi uchun botni qayta ishga tushiring." %}
+      <div style="margin-top:.6rem"><a class="btn small" href="{% url 'admin:health' %}">{% t "Tizim holati" %} →</a></div>
+    </div>
+    <div class="card">
+      <h2>{% t "Bu yerda nima yo‘q" %}</h2>
+      <p class="muted small" style="margin:0">
+        {% t "Payme/Uzum kalitlari, Telegram tokenlari va baza manzili ataylab ko‘rsatilmaydi va tahrirlanmaydi — ular sir, va sirning brauzerdagi maydonda turishi xavfsiz emas. Ular serverda" %}
+        <code style="word-break:break-all">{{ env_path }}</code> {% t "faylida qoladi." %}
+      </p>
+      <p class="muted small" style="margin:.6rem 0 0">
+        {% t "Har saqlashda faylning eski nusxasi" %} <code>.env.bak</code> {% t "ga yoziladi." %}
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

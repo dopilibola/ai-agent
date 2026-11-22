@@ -241,10 +241,40 @@ def _register_callbacks(channel: TelegramBotChannel) -> None:
     channel.add_callback_handler(UNMUTE_CALLBACK_PREFIX, _on_unmute)
 
 
+def _whatsapp_channel(agent):
+    """The WhatsApp customer channel, on the shared Meta webhook endpoint.
+
+    Same agent as the Telegram userbot on purpose: it is the same salesperson,
+    and the conversation is keyed by `tenant:channel:chat_id`, so the two
+    transports never share a thread.
+    """
+    from channels.meta import MetaWebhookServer, WhatsAppChannel
+
+    server = MetaWebhookServer(
+        app_secret=config.meta_app_secret,
+        verify_token=config.meta_verify_token,
+        host=config.meta_webhook_host,
+        port=config.meta_webhook_port,
+        path=config.meta_webhook_path,
+    )
+    return WhatsAppChannel(
+        agent=agent,
+        server=server,
+        token=config.whatsapp_token,
+        phone_id=config.whatsapp_phone_id,
+        api_version=config.meta_api_version,
+        debounce_seconds=config.whatsapp_debounce_seconds,
+        transcriber=get_voice(),
+        mute_store=get_mute_store(),
+        profile_store=get_profile_store(),
+    )
+
+
 def build_tenant(
     *,
     include_userbot: bool = True,
     include_operator: bool = True,
+    include_whatsapp: bool = True,
     include_jobs: bool = True,
     checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> Tenant:
@@ -260,6 +290,17 @@ def build_tenant(
         else:
             customer_channel = _userbot_channel(sales_agent)
             channels.append(customer_channel)
+    whatsapp_channel = None
+    if include_whatsapp:
+        if not config.whatsapp_configured:
+            logger.warning(
+                "WhatsApp is not fully configured (token / phone id / app secret / "
+                "verify token) — skipping the WhatsApp channel."
+            )
+        else:
+            whatsapp_channel = _whatsapp_channel(sales_agent)
+            channels.append(whatsapp_channel)
+
     if include_operator:
         if not config.bot_token:
             logger.warning("MASKAN_BOT_TOKEN not set — skipping the operator bot channel.")
@@ -272,6 +313,13 @@ def build_tenant(
         funnel.FunnelContext(
             config=config,
             customer_channel=customer_channel,
+            # Every transport a client can be on. A scheduled touch is delivered
+            # on the one that chat actually used — a Telegram id and a WhatsApp
+            # phone number are different address spaces, so the wrong choice
+            # writes to a stranger rather than failing.
+            customer_channels=tuple(
+                c for c in (customer_channel, whatsapp_channel) if c is not None
+            ),
             notifier=get_notifier(),
             mute_store=get_mute_store(),
         )
