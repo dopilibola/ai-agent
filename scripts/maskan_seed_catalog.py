@@ -15,9 +15,10 @@ CSV formats (header row required, UTF-8):
     services   : code,name_uz,name_ru,desc_uz,desc_ru,price,sort
     cemeteries : name_uz,name_ru,city,district
 
-The built-in defaults mirror the price list the Maskan app shipped with and a
-starter set of Tashkent-area cemeteries. **Check both against reality before
-selling** — a wrong price here is a wrong price charged.
+The built-in defaults are the four packages the business actually sells
+(Ekonom / Bir martalik / Oylik / Yillik) plus a starter set of Tashkent-area
+cemeteries. **Check both against reality before selling** — a wrong price here
+is a wrong price charged.
 
 Requires DATABASE_URL.
 """
@@ -36,16 +37,52 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 load_dotenv()
 
 # code, name_uz, name_ru, desc_uz, desc_ru, price (so'm), sort
+#
+# Maskan paket sotadi, alohida xizmat emas: mijoz to'rttadan BITTASINI tanlaydi,
+# ularni qo'shib hisoblanmaydi. Narxlar biznesning haqiqiy narx ro'yxati
+# (2026-09-15 da yangilandi: Ekonom qo'shildi, Yillik 3 360 000 -> 2 100 000).
+#
+# Ekonom SHARTLI: u faqat so'nggi 1 oy ichida tozalangan qabr uchun yaroqli —
+# sharti tavsifda yozilgan va `tools.CONDITIONAL_SERVICE_CODES` da qayd etilgan,
+# shuning uchun agent uni "arzon kirish varianti" sifatida o'zidan taklif qilmaydi.
 DEFAULT_SERVICES = [
-    ("weed", "O't tozalash", "Прополка", "Begona o'tlarni olib tashlash", "Удаление сорняков", 25000, 10),
-    ("clean", "Umumiy tozalash", "Уборка", "Axlat va changni tozalash", "Уборка мусора и пыли", 30000, 20),
-    ("grass", "Maysazor", "Газон", "Yashil maysa yotqizish", "Укладка газона", 35000, 30),
-    ("flowers", "Gul ekish", "Посадка цветов", "Yangi gullar o'tqazish", "Посадка свежих цветов", 40000, 40),
-    ("marble", "Marmar jilo", "Полировка мрамора", "Marmarni yaltiratish", "Полировка мрамора", 45000, 50),
-    ("stones", "Bezak toshlar", "Декоративные камни", "Bezakli toshlar qo'yish", "Укладка декоративных камней", 50000, 60),
-    ("border", "Chegara tiklash", "Восстановление бордюра", "Qabr chegarasini tiklash", "Восстановление бордюра", 60000, 70),
-    ("trees", "Daraxt ekish", "Посадка деревьев", "Yon atrofga daraxt ekish", "Посадка деревьев", 70000, 80),
-    ("premium", "To'liq parvarish", "Полный уход", "Hamma narsa — eng yaxshi natija", "Всё включено — лучший результат", 120000, 90),
+    (
+        "pack_econom", "Ekonom", "Эконом",
+        "1 tashrif. Qabr toshi va asosiy yuzani tozalash, o'tlarni yulish, "
+        "foto-hisobot (1 ta umumiy rasm). Ushbu tarif so'nggi 1 oy ichida "
+        "tozalangan qabrlar uchun mo'ljallangan.",
+        "1 визит. Очистка надгробия и основной поверхности, прополка, "
+        "фото-отчёт (1 общий снимок). Тариф рассчитан на могилы, убранные "
+        "в течение последнего месяца.",
+        179000, 10,
+    ),
+    (
+        "pack_once", "Bir martalik", "Разовый",
+        "1 tashrif. Qabr toshi, panjara va atrofni chuqur tozalash, o't va "
+        "axlatni yig'ib hududdan chiqarib yuborish, to'liq foto-hisobot "
+        "(oldin/keyin).",
+        "1 визит. Глубокая уборка надгробия, ограды и территории вокруг, "
+        "сбор и вывоз травы и мусора, полный фото-отчёт (до/после).",
+        280000, 20,
+    ),
+    (
+        "pack_monthly", "Oylik", "Месячный",
+        "Oyiga 4 marta tashrif. Har safar to'liq tozalash, obodonlashtirish "
+        "va foto-hisobot.",
+        "4 визита в месяц. Каждый раз полная уборка, благоустройство и "
+        "фото-отчёт.",
+        900000, 30,
+    ),
+    (
+        "pack_yearly", "Yillik", "Годовой",
+        "Yiliga 12 marta tashrif: 1-tashrif to'liq (Bir martalik darajasida) "
+        "tozalash, qolgan 11 oy Ekonom darajasida muntazam parvarish. Har "
+        "tashrifdan keyin foto-hisobot.",
+        "12 визитов в год: первый визит — полная уборка (уровень Разового), "
+        "остальные 11 месяцев — регулярный уход уровня Эконом. Фото-отчёт "
+        "после каждого визита.",
+        2100000, 40,
+    ),
 ]
 
 # name_uz, name_ru, city, district — Tashkent city + Tashkent region only, which
