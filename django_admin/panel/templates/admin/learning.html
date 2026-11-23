@@ -1,0 +1,246 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+
+{% comment %}
+«O‘qitish» — teaching the agent. Left: the filtered queue a person approves.
+Right: the controls — on/off and threshold, a test box that shows exactly what
+the bot would pull, chat upload, hand-written experience, and the harvests.
+{% endcomment %}
+
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{% t "O‘qitish" %}</h1>
+  <p>{% t "Haqiqiy sotuv chatlari va tajribangizni bering — tizim ularni savol→javob juftlariga ajratadi, filtrlaydi, siz tasdiqlaysiz. Bot o‘xshash savolga shu uslubda javob beradi." %}</p>
+</div>
+
+{% if not settings.enabled %}
+  <div class="note warn">{% t "O‘rganish o‘chirilgan — bot tasdiqlangan misollardan foydalanmayapti." %}</div>
+{% endif %}
+
+{% if pending_import %}
+<div class="card" id="import" style="margin-bottom:1rem">
+  <h2>{% t "Chatda kim sotuvchi?" %}</h2>
+  <p class="muted small">{% t "Topilgan xabarlar" %}: <b>{{ pending_import.count }}</b>. {% t "Sotuvchi (siz tomondagi odam) ni tanlang — qolganlar mijoz deb olinadi." %}</p>
+  <form method="post" action="{% url 'admin:learning_import' %}">
+    {% csrf_token %}
+    <input type="hidden" name="tenant" value="{{ tenant }}">
+    <input type="hidden" name="token" value="{{ pending_import.token }}">
+    <input type="hidden" name="label" value="{{ pending_import.label }}">
+    <input type="hidden" name="category" value="{{ pending_import.category }}">
+    <div class="chips">
+      {% for name, n in pending_import.speakers %}
+        <label class="chip"><input type="radio" name="seller" value="{{ name }}" {% if forloop.first %}checked{% endif %}> {{ name }} <b>{{ n }}</b></label>
+      {% endfor %}
+    </div>
+    <div class="log" style="margin:.6rem 0">
+      {% for m in pending_import.sample %}
+        <div class="small"><b>{{ m.speaker }}:</b> {{ m.text|truncatechars:140 }}</div>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn primary">{% t "Ajratish va filtrlash" %}</button>
+    <a class="btn" href="?tenant={{ tenant }}">{% t "Bekor qilish" %}</a>
+  </form>
+</div>
+{% endif %}
+
+<div class="grid split">
+  {% comment %} ---------------- the queue {% endcomment %}
+  <div class="card">
+    <form class="toolbar" method="get">
+      {% if tenants|length > 1 %}
+        <select name="tenant" onchange="this.form.submit()" aria-label="{% t 'Bo‘lim' %}">
+          {% for tn in tenants %}<option value="{{ tn }}" {% if tn == tenant %}selected{% endif %}>{{ tn }}</option>{% endfor %}
+        </select>
+      {% else %}<input type="hidden" name="tenant" value="{{ tenant }}">{% endif %}
+      <input type="hidden" name="status" value="{{ status }}">
+      <select name="source" onchange="this.form.submit()" aria-label="{% t 'Manba' %}">
+        <option value="">{% t "Barcha manbalar" %}</option>
+        {% for key, label in sources %}<option value="{{ key }}" {% if key == source %}selected{% endif %}>{{ label|t }}</option>{% endfor %}
+      </select>
+      <input type="search" name="q" value="{{ q }}" placeholder="{% t 'Matn bo‘yicha qidirish' %}">
+      <button type="submit" class="btn primary">{% t "Qidirish" %}</button>
+    </form>
+
+    <div class="chips">
+      {% for key, label in statuses %}
+        <a class="chip {% if key == status %}active{% endif %}"
+           href="?tenant={{ tenant }}&amp;status={{ key }}{% if source %}&amp;source={{ source }}{% endif %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}">
+          {{ label|t }}
+          {% if key == "pending" %}<b>{{ counts.pending }}</b>{% elif key == "approved" %}<b>{{ counts.approved }}</b>{% elif key == "rejected" %}<b>{{ counts.rejected }}</b>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+
+    {% if rows %}
+    <form method="post" action="{% url 'admin:learning_review' %}" id="bulk">
+      {% csrf_token %}
+      <input type="hidden" name="tenant" value="{{ tenant }}">
+      <input type="hidden" name="back" value="{{ back }}">
+      <div class="toolbar">
+        <label class="small"><input type="checkbox" onclick="document.querySelectorAll('.pick').forEach(c=>c.checked=this.checked)"> {% t "Hammasini belgilash" %}</label>
+        <span class="spacer"></span>
+        <button class="btn small primary" name="action" value="approve">✓ {% t "Tasdiqlash" %}</button>
+        <button class="btn small" name="action" value="reject">✗ {% t "Rad etish" %}</button>
+        <button class="btn small" name="action" value="delete" onclick="return confirm('{% t "O‘chirilsinmi?" %}')">{% t "O‘chirish" %}</button>
+      </div>
+    </form>
+
+    {% for r in rows %}{% with ex=r.obj %}
+      <div class="msg" style="border-top:1px solid var(--hairline-color,#eaecf0);padding:.8rem 0">
+        <div class="msg-head small muted">
+          <input type="checkbox" class="pick" name="ids" value="{{ ex.id }}" form="bulk">
+          #{{ ex.id }} ·
+          {% if ex.approved is None %}<span class="badge warn">{% t "ko‘rilmagan" %}</span>
+          {% elif ex.approved %}<span class="badge ok">{% t "tasdiqlangan" %}</span>
+          {% else %}<span class="badge bad">{% t "rad etilgan" %}</span>{% endif %}
+          · {% for key, label in sources %}{% if key == r.source %}{{ label|t }}{% endif %}{% endfor %}
+          {% if r.label %}«{{ r.label }}»{% endif %}
+          {% if ex.category %}· {{ ex.category }}{% endif %}
+          · {{ ex.created_at|date:"d.m.Y" }}
+          {% if r.thread %}· <a href="{% url 'admin:conversation_thread' r.thread %}">{% t "suhbat" %}</a>{% endif %}
+        </div>
+        <div class="msg-body">
+          <div><b>{% t "Mijoz" %}:</b> {{ ex.question|linebreaksbr }}</div>
+          {% if ex.ai_attempt %}<div class="muted small"><b>AI:</b> {{ ex.ai_attempt|truncatechars:300 }}</div>{% endif %}
+          <div style="margin-top:.3rem"><b>{% t "Javob" %}:</b> {{ ex.human_reply|linebreaksbr }}</div>
+        </div>
+        <div class="toolbar" style="margin-top:.4rem">
+          <form method="post" action="{% url 'admin:learning_review' %}" style="margin:0;display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="tenant" value="{{ tenant }}">
+            <input type="hidden" name="back" value="{{ back }}">
+            <input type="hidden" name="id" value="{{ ex.id }}">
+            {% if ex.approved is not True %}<button class="btn small primary" name="action" value="approve">✓ {% t "Tasdiqlash" %}</button>{% endif %}
+            {% if ex.approved is not False %}<button class="btn small" name="action" value="reject">✗ {% t "Rad etish" %}</button>{% endif %}
+            {% if ex.approved is not None %}<button class="btn small" name="action" value="pending">{% t "Qayta ko‘rish" %}</button>{% endif %}
+          </form>
+          <details style="flex:1">
+            <summary class="small link-btn">{% t "Tahrirlash" %}</summary>
+            <form method="post" action="{% url 'admin:learning_review' %}" class="reply" style="margin-top:.4rem">
+              {% csrf_token %}
+              <input type="hidden" name="tenant" value="{{ tenant }}">
+              <input type="hidden" name="back" value="{{ back }}">
+              <input type="hidden" name="id" value="{{ ex.id }}">
+              <input type="hidden" name="action" value="edit">
+              <textarea name="question" rows="2">{{ ex.question }}</textarea>
+              <textarea name="reply" rows="4">{{ ex.human_reply }}</textarea>
+              <input type="text" name="category" value="{{ ex.category|default:'' }}" placeholder="{% t 'Mavzu (ixtiyoriy)' %}">
+              <div class="reply-foot"><button class="btn small primary">{% t "Saqlash va tasdiqlash" %}</button></div>
+            </form>
+          </details>
+        </div>
+      </div>
+    {% endwith %}{% endfor %}
+
+    {% if page.has_other_pages %}
+      <div class="pager">
+        {% if page.has_previous %}<a class="btn small" href="?{{ querystring }}&amp;page={{ page.previous_page_number }}">←</a>{% endif %}
+        <span class="small muted">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+        {% if page.has_next %}<a class="btn small" href="?{{ querystring }}&amp;page={{ page.next_page_number }}">→</a>{% endif %}
+      </div>
+    {% endif %}
+    {% else %}
+      <p class="empty">{% t "Bu filtr bo‘yicha hech narsa yo‘q." %}</p>
+    {% endif %}
+  </div>
+
+  {% comment %} ---------------- controls {% endcomment %}
+  <div class="stack">
+    <div class="card">
+      <h2>{% t "Sinab ko‘rish" %}</h2>
+      <p class="muted small" style="margin-top:-.4rem">{% t "Mijoz yozadigan gapni kiriting — bot qaysi misollarni olishini ko‘rasiz." %}</p>
+      <form method="get" class="reply">
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="text" name="test" value="{{ test }}" placeholder="{% t 'masalan: qabrni tozalash qancha turadi?' %}">
+        <div class="reply-foot"><button class="btn small primary">{% t "Tekshirish" %}</button></div>
+      </form>
+      {% if test %}
+        {% if preview %}
+          <table class="table compact">
+            <tbody>
+            {% for p in preview %}
+              <tr {% if not p.used %}class="muted"{% endif %}>
+                <td class="num">{% if p.used %}✓{% else %}—{% endif %} {{ p.score|stringformat:".2f" }}</td>
+                <td><div class="small"><b>{{ p.question|truncatechars:90 }}</b></div><div class="small muted">{{ p.reply|truncatechars:140 }}</div></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          <div class="small muted">{% t "✓ — bot shuni oladi. Qolganlari chegaradan past." %}</div>
+        {% else %}
+          <p class="empty">{% t "Tasdiqlangan misol hali yo‘q." %}</p>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>{% t "Boshqaruv" %}</h2>
+      <form method="post" action="{% url 'admin:learning_settings' %}">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        <label class="switch">
+          <input type="checkbox" name="enabled" {% if settings.enabled %}checked{% endif %}>
+          <span><b>{% t "Bot misollardan o‘rgansin" %}</b>
+            <div class="small muted">{% t "O‘chirilsa bot faqat o‘z qoidalari bilan javob beradi." %}</div></span>
+        </label>
+        <div class="field">
+          <label for="lk">{% t "Har javobga nechta misol" %}</label>
+          <input id="lk" type="number" name="k" min="1" max="8" value="{{ settings.k }}" style="width:5rem">
+        </div>
+        <div class="field">
+          <label for="lm">{% t "O‘xshashlik chegarasi" %}</label>
+          <input id="lm" type="number" name="min_score" min="0.05" max="0.9" step="0.05" value="{{ settings.min_score|stringformat:'.2f' }}" style="width:5rem">
+          <div class="help">{% t "Kattaroq — faqat juda o‘xshash savollarda ishlatadi. Kichikroq — ko‘proq, lekin aralash." %}</div>
+        </div>
+        <button class="btn primary">{% t "Saqlash" %}</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>{% t "Chat yuklash" %}</h2>
+      <p class="muted small" style="margin-top:-.4rem">{% t "Telegram eksporti (result.json), WhatsApp eksporti (.txt) yoki «Ism: matn» ko‘rinishidagi matn. Narx, telefon, karta raqamlari avtomatik yashiriladi." %}</p>
+      <form method="post" action="{% url 'admin:learning_import' %}" enctype="multipart/form-data" class="reply">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="file" name="file" accept=".json,.txt">
+        <textarea name="text" rows="4" placeholder="{% t 'yoki chatni shu yerga joylang' %}"></textarea>
+        <input type="text" name="label" placeholder="{% t 'Nomi (masalan: Aziz, sentyabr)' %}">
+        <input type="text" name="category" placeholder="{% t 'Mavzu (ixtiyoriy)' %}">
+        <div class="reply-foot"><button class="btn small primary">{% t "Yuklash" %}</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>{% t "Tajriba yozish" %}</h2>
+      <p class="muted small" style="margin-top:-.4rem">{% t "Mijoz shunday desa — shunday javob bering. Darhol ishlaydi." %}</p>
+      <form method="post" action="{% url 'admin:learning_manual' %}" class="reply">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        <textarea name="question" rows="2" placeholder="{% t 'Mijoz: …' %}" required></textarea>
+        <textarea name="reply" rows="4" placeholder="{% t 'To‘g‘ri javob: …' %}" required></textarea>
+        <input type="text" name="category" placeholder="{% t 'Mavzu (ixtiyoriy)' %}">
+        <div class="reply-foot"><button class="btn small primary">{% t "Saqlash" %}</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>{% t "Bot suhbatlaridan yig‘ish" %}</h2>
+      <form method="post" action="{% url 'admin:learning_harvest' %}" style="margin:0">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ tenant }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        <p class="small muted">{% t "Operator botdan keyin o‘zi yozgan javoblar:" %}</p>
+        <button class="btn small" name="kind" value="operator">{% t "Operator javoblarini yig‘ish" %}</button>
+        <p class="small muted" style="margin-top:.8rem">{% t "Sotuv bilan tugagan suhbatlardagi bot javoblari:" %}</p>
+        <button class="btn small" name="kind" value="won">{% t "Sotuvli suhbatlardan yig‘ish" %}</button>
+      </form>
+      <div class="card-foot small muted">{% t "Yig‘ilganlar «ko‘rilmagan» bo‘lib tushadi — tasdiqlamaguningizcha botga ta’sir qilmaydi." %}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

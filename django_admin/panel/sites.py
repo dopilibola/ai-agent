@@ -18,6 +18,8 @@ more pages that the model admin cannot express:
 * ``/admin/health/`` — are the units running, is the corpus still being written,
   and a restart button for the bot units.
 * ``/admin/settings/`` — the few `.env` values an operator legitimately changes.
+* ``/admin/learning/`` — teach the agent: upload real sales chats, write down
+  experience, filter and approve the pairs it retrieves (`crm/learning.py`).
 * ``/admin/analytics/`` — the trends, the touch mix, and per-tool failure rates.
 * ``/admin/thread/<thread_id>/`` — one conversation in order.
 
@@ -38,9 +40,22 @@ class PanelAdminSite(admin.AdminSite):
     index_title = "Bosh sahifa"
 
     def get_urls(self):
+        from panel import super_views as sv
         from panel import views
 
-        custom = [
+        superadmin = [
+            path("super/", self.admin_view(sv.home), name="super_home"),
+            path("super/tenants/<str:tenant>/", self.admin_view(sv.tenant_detail), name="super_tenant"),
+            path("super/tenants-bot/", self.admin_view(sv.tenant_bot), name="super_tenant_bot"),
+            path("super/admins/", self.admin_view(sv.admins), name="super_admins"),
+            path("super/admins/create/", self.admin_view(sv.admin_create), name="super_admin_create"),
+            path("super/admins/update/", self.admin_view(sv.admin_update), name="super_admin_update"),
+            path("super/audit/", self.admin_view(sv.audit), name="super_audit"),
+            path("super/security/", self.admin_view(sv.security), name="super_security"),
+            path("super/security/sessions/", self.admin_view(sv.close_sessions), name="super_sessions"),
+            path("super/backups/", self.admin_view(sv.backups_page), name="super_backups"),
+        ]
+        custom = superadmin + [
             path("users/", self.admin_view(views.users), name="users"),
             path("users/export.csv", self.admin_view(views.users_csv), name="users_csv"),
             path("users/unmute/", self.admin_view(views.unmute), name="chat_unmute"),
@@ -98,6 +113,32 @@ class PanelAdminSite(admin.AdminSite):
                 self.admin_view(views.settings_env_save),
                 name="settings_env_save",
             ),
+            path("learning/", self.admin_view(views.learning), name="learning"),
+            path(
+                "learning/import/",
+                self.admin_view(views.learning_import),
+                name="learning_import",
+            ),
+            path(
+                "learning/manual/",
+                self.admin_view(views.learning_manual),
+                name="learning_manual",
+            ),
+            path(
+                "learning/harvest/",
+                self.admin_view(views.learning_harvest),
+                name="learning_harvest",
+            ),
+            path(
+                "learning/review/",
+                self.admin_view(views.learning_review),
+                name="learning_review",
+            ),
+            path(
+                "learning/settings/",
+                self.admin_view(views.learning_settings),
+                name="learning_settings",
+            ),
             path("analytics/", self.admin_view(views.analytics), name="analytics"),
             path(
                 "thread/<path:thread_id>/",
@@ -116,16 +157,34 @@ class PanelAdminSite(admin.AdminSite):
         context = super().each_context(request)
         # Rendered by `admin/base_site.html` as the panel's top navigation. The
         # custom pages are not models, so nothing else would ever link to them.
-        context["panel_nav"] = [
+        from accounts import roles
+
+        is_super = roles.is_super(request.user)
+        nav = [
             ("Bosh sahifa", reverse("admin:index")),
             ("Mijozlar", reverse("admin:users")),
             ("Avto-xabarlar", reverse("admin:outreach")),
-            ("Bot qoidalari", reverse("admin:prompts")),
+            ("O‘qitish", reverse("admin:learning")),
             ("Tahlil", reverse("admin:analytics")),
             ("Holat", reverse("admin:health")),
-            ("Sozlamalar", reverse("admin:settings_env")),
-            ("Jadvallar", reverse("admin:crm_conversationevent_changelist")),
         ]
+        if is_super:
+            # The pages that can break a running bot stay with the super admin.
+            nav[3:3] = [("Bot qoidalari", reverse("admin:prompts"))]
+            nav += [
+                ("Sozlamalar", reverse("admin:settings_env")),
+                ("Jadvallar", reverse("admin:crm_conversationevent_changelist")),
+                ("Super admin", reverse("admin:super_home")),
+            ]
+        context["panel_nav"] = nav
+        context["panel_role"] = roles.role_of(request.user) if request.user.is_authenticated else ""
+        context["super_nav"] = [
+            ("Super admin", reverse("admin:super_home")),
+            ("Adminlar", reverse("admin:super_admins")),
+            ("Jurnal", reverse("admin:super_audit")),
+            ("Xavfsizlik", reverse("admin:super_security")),
+            ("Zaxira nusxalar", reverse("admin:super_backups")),
+        ] if is_super else []
         context["panel_path"] = request.path
         return context
 

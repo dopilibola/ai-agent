@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Xavfsizlik" %}</h1>
+  <p>{% t "Kirish nazorati va amaldagi qoidalar." %}</p>
+</div>
+{% include "admin/super/_tabs.html" %}
+
+<div class="stats">
+  <div class="stat"><div class="stat-label">{% t "Super adminlar" %}</div><div class="stat-value">{{ stats.supers }}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Adminlar" %}</div><div class="stat-value">{{ stats.admins }}</div><div class="stat-hint">{{ stats.blocked }} {% t "tasi bloklangan" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Ochiq sessiyalar" %}</div><div class="stat-value">{{ stats.sessions }}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Kirishlar · 24 soat" %}</div><div class="stat-value">{{ stats.logins_24h }}</div><div class="stat-hint">{{ stats.failed_24h }} {% t "ta muvaffaqiyatsiz" %}</div></div>
+</div>
+
+<div class="grid split">
+  <div class="card">
+    <h2>{% t "Qoidalar" %}</h2>
+    <ul>{% for p in policies %}<li>{{ p }}</li>{% endfor %}</ul>
+    <form method="post" action="{% url 'admin:super_sessions' %}" class="card-foot">
+      {% csrf_token %}
+      <button class="btn" onclick="return confirm('{% t "Sizdan boshqa hamma paneldan chiqariladi. Davom etasizmi?" %}')">{% t "Boshqa barcha sessiyalarni yopish" %}</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>{% t "Muvaffaqiyatsiz kirishlar" %}</h2>
+    <table class="table compact"><tbody>
+      {% for e in failed %}
+        <tr><td class="nowrap small">{{ e.at|date:"d.m.Y H:i" }}</td><td>{{ e.username|default:"—" }}</td><td class="small">{{ e.ip|default:"" }}</td></tr>
+      {% empty %}<tr><td class="empty">{% t "Yo‘q." %}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}

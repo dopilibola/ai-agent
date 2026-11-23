@@ -1,0 +1,76 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ stats.name }}</h1>
+  <p>{% t "Bo‘limni boshqarish va uning kirish huquqlari" %} · <code>{{ stats.tenant }}</code></p>
+</div>
+{% include "admin/super/_tabs.html" %}
+<p><a class="btn small" href="{% url 'admin:super_home' %}">← {% t "Barcha bo‘limlar" %}</a></p>
+
+<div class="stats">
+  <div class="stat"><div class="stat-label">{% t "Mijozlar" %}</div><div class="stat-value">{{ stats.chats }}</div><div class="stat-hint">{{ stats.active_week }} {% t "tasi shu hafta yozgan" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Xabarlar · 30 kun" %}</div><div class="stat-value">{{ stats.inbound_month }}</div><div class="stat-hint">{{ stats.replies_month }} {% t "ta bot javobi" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Tushum · 30 kun" %}</div><div class="stat-value">{{ stats.revenue_month|pul }}</div><div class="stat-hint">{{ stats.paid_month }} {% t "ta to‘langan buyurtma" %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "O‘qitish misollari" %}</div><div class="stat-value">{{ stats.examples }}</div><div class="stat-hint">{{ stats.examples_pending }} {% t "tasi tasdiq kutmoqda" %}</div></div>
+</div>
+
+<div class="grid split">
+  <div class="stack">
+    <div class="card">
+      <h2>{% t "Bot" %}</h2>
+      {% if stats.bot_enabled %}
+        <div class="note good">{% t "Bot yoqiq — mijozlarga javob bermoqda." %}</div>
+      {% else %}
+        <div class="note bad">{% t "Bot o‘chiq — mijozlarning xabarlari javobsiz qoladi (operator yozishi mumkin)." %}</div>
+      {% endif %}
+      <form method="post" action="{% url 'admin:super_tenant_bot' %}" style="margin-top:.8rem">
+        {% csrf_token %}
+        <input type="hidden" name="tenant" value="{{ stats.tenant }}">
+        {% if stats.bot_enabled %}
+          <button class="btn" name="enabled" value="0" onclick="return confirm('{% t "Botni o‘chirasizmi? Mijozlarga javob bermay qo‘yadi." %}')">{% t "Botni o‘chirish" %}</button>
+        {% else %}
+          <button class="btn primary" name="enabled" value="1">{% t "Botni yoqish" %}</button>
+        {% endif %}
+      </form>
+      <div class="card-foot small muted">{% t "O‘zgarish bir necha soniyada ishlayotgan botga yetadi. Qayta ishga tushirish shart emas." %}</div>
+    </div>
+
+    <div class="card">
+      <h2>{% t "Xizmatlar" %}</h2>
+      {% if units %}
+      <table class="table compact"><tbody>
+        {% for u in units %}
+          <tr><td>{{ u.label|t }}<div class="sub">{{ u.name }}</div></td><td class="num">
+            {% if u.ok %}<span class="badge ok">{% t "ishlayapti" %}</span>{% elif u.switched_off %}<span class="badge plain">{% t "o‘chirilgan" %}</span>{% elif not u.installed %}<span class="badge plain">{% t "o‘rnatilmagan" %}</span>{% else %}<span class="badge bad">{{ u.active_state }}</span>{% endif %}
+          </td></tr>
+        {% endfor %}
+      </tbody></table>
+      <div class="card-foot small"><a href="{% url 'admin:health' %}">{% t "Holat sahifasi (restart)" %} →</a></div>
+      {% else %}<p class="empty">{% t "Bu bo‘lim uchun xizmat ro‘yxatda yo‘q." %}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2>{% t "Adminlar" %}</h2>
+      <table class="table compact"><tbody>
+        {% for u in stats.admins %}
+          <tr><td><b>{{ u.username }}</b> {{ u.first_name }}</td><td class="num small muted">{% if u.last_login %}{{ u.last_login|date:"d.m.Y H:i" }}{% else %}{% t "kirmagan" %}{% endif %}</td></tr>
+        {% empty %}<tr><td class="empty">{% t "Bu bo‘limga admin biriktirilmagan." %}</td></tr>{% endfor %}
+      </tbody></table>
+      <div class="card-foot small"><a href="{% url 'admin:super_admins' %}">{% t "Adminlarni boshqarish" %} →</a></div>
+    </div>
+    <div class="card">
+      <h2>{% t "Shu bo‘limdagi harakatlar" %}</h2>
+      <table class="table compact"><tbody>
+        {% for e in recent %}
+          <tr><td class="nowrap small">{{ e.at|date:"d.m H:i" }}</td><td class="small"><b>{{ e.username }}</b> — {{ e.action|t }}</td></tr>
+        {% empty %}<tr><td class="empty">{% t "Hali yozuv yo‘q." %}</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </div>
+</div>
+{% endblock %}

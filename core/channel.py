@@ -220,6 +220,12 @@ class Channel(ABC):
                 "Channel %s skipped dispatch for muted chat %s", self.name, chat_id
             )
             return ""
+        if not await _bot_enabled(self.tenant_id):
+            logger.info(
+                "Channel %s skipped dispatch: bot switched off for tenant %s",
+                self.name, self.tenant_id,
+            )
+            return ""
         effective_agent = agent or self.agent
         # Deterministic pre-LLM guard (e.g. anfa emergency triage). A non-empty
         # return is sent verbatim and the agent is skipped for this turn.
@@ -244,3 +250,19 @@ class Channel(ABC):
             current_channel.reset(channel_token)
             current_chat_id.reset(chat_token)
             current_tenant_id.reset(tenant_token)
+
+
+async def _bot_enabled(tenant_id: str) -> bool:
+    """The super admin's per-tenant switch (`panel_settings`, key "bot").
+
+    Read through `db/settings.py`'s TTL cache, so flipping it in the panel
+    reaches the running bot in seconds. Fails open: a settings read that
+    breaks must not silence a working bot.
+    """
+    try:
+        from db.settings import get_setting
+
+        value = await get_setting(tenant_id, "bot", {"enabled": True})
+        return bool(value.get("enabled", True))
+    except Exception:
+        return True

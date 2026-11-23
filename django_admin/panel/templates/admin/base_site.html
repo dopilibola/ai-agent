@@ -48,7 +48,9 @@ per-visitor setting here.
             <button type="submit" name="language" value="en"
                     class="{% if LANG == 'en' %}on{% endif %}">EN</button>
           </form>
-          <span>{{ user.get_username }}</span>
+          <span>{{ user.get_username }}
+            {% if panel_role == "superadmin" %}<span class="badge ok">{% t "Super admin" %}</span>{% else %}<span class="badge plain">{% t "Admin" %}</span>{% endif %}
+          </span>
           <a href="{% url 'admin:password_change' %}">{% t "Parol" %}</a>
           <a href="{% url 'admin:logout' %}">{% t "Chiqish" %}</a>
         </div>

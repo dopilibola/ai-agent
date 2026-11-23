@@ -1,0 +1,35 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Zaxira nusxalar" %}</h1>
+  <p>{% t "Har kecha olinadigan baza nusxalari." %}</p>
+</div>
+{% include "admin/super/_tabs.html" %}
+
+{% if not backup.exists %}
+  <div class="note warn">{% t "Papka topilmadi:" %} <code>{{ backup.folder }}</code></div>
+{% else %}
+<div class="stats">
+  <div class="stat"><div class="stat-label">{% t "Oxirgi nusxa" %}</div><div class="stat-value" style="font-size:1.3rem">{% if backup.last %}{{ backup.last|date:"d.m.Y H:i" }}{% else %}—{% endif %}</div>
+    <div class="stat-hint">{% if backup.fresh %}<span class="badge ok">{% t "yangi" %}</span>{% else %}<span class="badge bad">{% t "eskirgan" %}</span>{% endif %}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Nusxalar soni" %}</div><div class="stat-value">{{ backup.files|length }}</div></div>
+  <div class="stat"><div class="stat-label">{% t "Jami hajm" %}</div><div class="stat-value" style="font-size:1.3rem">{{ backup.total|filesizeformat }}</div></div>
+</div>
+<div class="card">
+  <table class="table">
+    <thead><tr><th>{% t "Sana" %}</th><th>{% t "Fayl" %}</th><th>{% t "Turi" %}</th><th class="num">{% t "Hajmi" %}</th><th>{% t "Holati" %}</th></tr></thead>
+    <tbody>
+    {% for f in backup.files %}
+      <tr><td class="nowrap">{{ f.at|date:"d.m.Y H:i" }}</td><td class="small"><code>{{ f.name }}</code></td><td>{{ f.kind|t }}</td>
+        <td class="num">{{ f.size|filesizeformat }}</td>
+        <td>{% if f.ok %}<span class="badge ok">{% t "Muvaffaqiyatli" %}</span>{% else %}<span class="badge bad">{% t "Bo‘sh fayl" %}</span>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5" class="empty">{% t "Hali nusxa yo‘q." %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <div class="card-foot small muted">{% t "Nusxalar serverda:" %} <code>{{ backup.folder }}</code>. {% t "Tiklash: kerakli faylni" %} <code>gunzip -c FAYL | psql</code> {% t "bilan bazaga qaytaring (avval botni to‘xtating)." %}</div>
+</div>
+{% endif %}
+{% endblock %}

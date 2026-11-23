@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Jurnal" %}</h1>
+  <p>{% t "Kim, qachon, nimani o‘zgartirdi — va qayerdan." %}</p>
+</div>
+{% include "admin/super/_tabs.html" %}
+
+<form class="toolbar" method="get">
+  <select name="who" onchange="this.form.submit()"><option value="">{% t "Barcha foydalanuvchilar" %}</option>
+    {% for u in users %}<option value="{{ u }}" {% if u == who %}selected{% endif %}>{{ u|default:"—" }}</option>{% endfor %}</select>
+  <select name="action" onchange="this.form.submit()"><option value="">{% t "Barcha harakatlar" %}</option>
+    {% for a in actions %}<option value="{{ a }}" {% if a == action %}selected{% endif %}>{{ a|t }}</option>{% endfor %}</select>
+  <select name="tenant" onchange="this.form.submit()"><option value="">{% t "barcha bo‘limlar" %}</option>
+    {% for tn in all_tenants %}<option value="{{ tn }}" {% if tn == tenant %}selected{% endif %}>{{ tn }}</option>{% endfor %}</select>
+  <select name="days" onchange="this.form.submit()">
+    <option value="1" {% if days == "1" %}selected{% endif %}>{% t "1 kun" %}</option>
+    <option value="7" {% if days == "7" %}selected{% endif %}>{% t "7 kun" %}</option>
+    <option value="30" {% if days == "30" %}selected{% endif %}>{% t "30 kun" %}</option>
+    <option value="365" {% if days == "365" %}selected{% endif %}>{% t "1 yil" %}</option>
+  </select>
+  <span class="spacer"></span>
+  <a class="btn small" href="?{{ querystring }}&amp;format=csv">CSV</a>
+</form>
+
+<div class="card">
+  <div class="table-scroll">
+  <table class="table">
+    <thead><tr><th>{% t "Sana" %}</th><th>{% t "Foydalanuvchi" %}</th><th>{% t "Bo‘lim" %}</th><th>{% t "Harakat" %}</th><th>{% t "Tafsilot" %}</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for e in page.object_list %}
+      <tr>
+        <td class="nowrap small">{{ e.at|date:"d.m.Y H:i" }}</td>
+        <td><b>{{ e.username|default:"—" }}</b></td>
+        <td class="small">{{ e.tenant|default:"—" }}</td>
+        <td>{% if e.action == "Kirish muvaffaqiyatsiz" %}<span class="badge bad">{{ e.action|t }}</span>{% else %}{{ e.action|t }}{% endif %}</td>
+        <td class="small muted">{{ e.detail }}</td>
+        <td class="small nowrap">{{ e.ip|default:"" }}</td>
+      </tr>
+    {% empty %}<tr><td colspan="6" class="empty">{% t "Bu filtr bo‘yicha yozuv yo‘q." %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if page.has_other_pages %}
+    <div class="pager">
+      {% if page.has_previous %}<a class="btn small" href="?{{ querystring }}&amp;page={{ page.previous_page_number }}">←</a>{% endif %}
+      <span class="small muted">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a class="btn small" href="?{{ querystring }}&amp;page={{ page.next_page_number }}">→</a>{% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

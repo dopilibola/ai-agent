@@ -175,15 +175,48 @@ async def harvest(tenant_id: str, *, limit: int = 500) -> int:
     return inserted
 
 
-async def search(tenant_id: str, query: str, *, k: int = 3) -> list[Example]:
-    """The k closest approved examples. Returns [] on any failure."""
+# The panel's «O‘qitish» page writes these under `panel_settings` (key
+# "learning"); the bot reads them live through `db/settings.py`, so switching
+# examples off or tightening the threshold needs no restart.
+SETTING_KEY = "learning"
+DEFAULTS = {"enabled": True, "k": 3, "min_score": 0.25}
+
+
+async def _settings(tenant_id: str) -> dict:
+    try:
+        from db.settings import get_setting
+
+        value = await get_setting(tenant_id, SETTING_KEY, DEFAULTS)
+    except Exception:
+        value = dict(DEFAULTS)
+    try:
+        k = max(1, min(8, int(value.get("k", 3))))
+        min_score = max(0.05, min(0.9, float(value.get("min_score", 0.25))))
+    except (TypeError, ValueError):
+        k, min_score = 3, 0.25
+    return {"enabled": bool(value.get("enabled", True)), "k": k, "min_score": min_score}
+
+
+async def search(tenant_id: str, query: str, *, k: Optional[int] = None) -> list[Example]:
+    """The k closest approved examples. Returns [] on any failure.
+
+    Rows approved in the panel have no embedding until `gold_review.py --embed`
+    runs, so the vector path is topped up by trigram over the un-embedded rows —
+    otherwise an example approved in the browser would be invisible to the bot.
+    """
     import psycopg
 
     query = (query or "").strip()
     if not query:
         return []
     try:
+        cfg = await _settings(tenant_id)
+        if not cfg["enabled"]:
+            return []
+        k = k or cfg["k"]
+        min_score = cfg["min_score"]
         vector = await embed(query)
+        found: list[Example] = []
         with psycopg.connect(_dsn(), connect_timeout=5) as conn:
             cur = conn.cursor()
             if vector is not None:
@@ -197,19 +230,22 @@ async def search(tenant_id: str, query: str, *, k: int = 3) -> list[Example]:
                     """,
                     (vector, tenant_id, vector, k),
                 )
-            else:
+                found = [Example(q, h, a, c, float(s or 0)) for q, h, a, c, s in cur.fetchall()]
+            if len(found) < k:
                 cur.execute(
-                    """
+                    f"""
                     select question, human_reply, ai_attempt, coalesce(category, ''),
                            similarity(question, %s) as score
                     from learning_examples
                     where tenant_id = %s and approved is true
-                      and similarity(question, %s) > 0.25
+                      {"and embedding is null" if vector is not None else ""}
+                      and similarity(question, %s) > %s
                     order by score desc limit %s
                     """,
-                    (query, tenant_id, query, k),
+                    (query, tenant_id, query, min_score, k - len(found)),
                 )
-            return [Example(q, h, a, c, float(s or 0)) for q, h, a, c, s in cur.fetchall()]
+                found += [Example(q, h, a, c, float(s or 0)) for q, h, a, c, s in cur.fetchall()]
+            return found
     except Exception:
         logger.debug("example search failed", exc_info=True)
         return []

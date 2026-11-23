@@ -15,6 +15,7 @@ Each function is a plain view; `PanelAdminSite.get_urls` wraps them in
 from __future__ import annotations
 
 import csv
+import re
 from datetime import timedelta
 
 from django.contrib import admin, messages
@@ -712,3 +713,276 @@ def settings_env_save(request):
     for note in notes:
         (messages.success if ok else messages.error)(request, note)
     return HttpResponseRedirect(back)
+
+
+# ------------------------------------------------------------------ learning
+#
+# «O‘qitish»: real conversations in, a filtered review queue, and the approved
+# pairs the bot folds into its prompt. The logic lives in `crm/learning.py`;
+# these views only move form fields to it.
+
+LEARNING_STATUSES = (
+    ("pending", "Ko‘rilmagan"),
+    ("approved", "Tasdiqlangan"),
+    ("rejected", "Rad etilgan"),
+    ("all", "Hammasi"),
+)
+IMPORT_MAX_BYTES = 25 * 1024 * 1024
+
+
+def _import_dir():
+    from django.conf import settings as dj
+
+    path = dj.BASE_DIR / ".imports"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def _learning_back(request, tenant: str) -> HttpResponseRedirect:
+    back = request.POST.get("back") or ""
+    if back.startswith(reverse("admin:learning")):
+        return HttpResponseRedirect(back)
+    return HttpResponseRedirect(f"{reverse('admin:learning')}?tenant={tenant}")
+
+
+def _report_note(request, added: int, report) -> None:
+    dropped = ", ".join(f"{t(k)}: {v}" for k, v in report.dropped.most_common())
+    msg = f"{t('Qo‘shildi')}: {added}"
+    if dropped:
+        msg += f" · {t('Filtrdan o‘tmadi')} — {dropped}"
+    messages.success(request, msg)
+
+
+def learning(request):
+    from crm import learning as ln
+    from crm.models import LearningExample
+
+    tenant = (request.GET.get("tenant") or DEFAULT_TENANT).strip()
+    status = request.GET.get("status") or "pending"
+    source = request.GET.get("source") or ""
+    q = (request.GET.get("q") or "").strip()
+
+    from django.db.models import Q
+
+    imported = Q(source_thread_id__startswith="import:")
+    won = Q(source_thread_id__startswith="won:")
+    manual = Q(source_thread_id="manual") | Q(source_thread_id__isnull=True)
+    qs = LearningExample.objects.filter(tenant_id=tenant).order_by("-id")
+    qs = {
+        "pending": qs.filter(approved__isnull=True),
+        "approved": qs.filter(approved=True),
+        "rejected": qs.filter(approved=False),
+    }.get(status, qs)
+    if source == "import":
+        qs = qs.filter(imported)
+    elif source == "won":
+        qs = qs.filter(won)
+    elif source == "manual":
+        qs = qs.filter(manual)
+    elif source == "operator":
+        qs = qs.exclude(imported | won | manual)
+    if q:
+        qs = qs.filter(Q(question__icontains=q) | Q(human_reply__icontains=q)
+                       | Q(category__icontains=q))
+
+    page = Paginator(qs, 25).get_page(request.GET.get("page"))
+    rows = [
+        {
+            "obj": ex,
+            "source": ln.source_of(ex.source_thread_id),
+            "thread": ln.real_thread(ex.source_thread_id),
+            "label": (ex.source_thread_id or "")[7:] if (ex.source_thread_id or "").startswith("import:") else "",
+        }
+        for ex in page.object_list
+    ]
+
+    settings_ = ln.load_settings(tenant)
+    test = (request.GET.get("test") or "").strip()
+    preview = []
+    if test:
+        try:
+            preview = ln.preview(tenant, test, settings_)
+        except Exception as exc:  # pg_trgm missing, DB hiccup
+            messages.error(request, f"{t('Sinovda xato')}: {exc}")
+
+    pending_import = None
+    token = (request.GET.get("import") or "").strip()
+    if token and re.fullmatch(r"[0-9a-f]{32}", token):
+        path = _import_dir() / f"{token}.txt"
+        if path.exists():
+            msgs = ln.parse_chat(path.read_text(encoding="utf-8", errors="replace"))
+            pending_import = {
+                "token": token,
+                "label": request.GET.get("label") or "chat",
+                "category": request.GET.get("category") or "",
+                "count": len(msgs),
+                "speakers": ln.speakers(msgs),
+                "sample": msgs[:6],
+            }
+
+    from urllib.parse import urlencode
+
+    keep = {k: v for k, v in (("tenant", tenant), ("status", status), ("source", source), ("q", q)) if v}
+    context = {
+        **admin.site.each_context(request),
+        "title": t("O‘qitish"),
+        "tenant": tenant,
+        "tenants": an.tenants() or [DEFAULT_TENANT],
+        "status": status,
+        "statuses": LEARNING_STATUSES,
+        "source": source,
+        "sources": list(ln.SOURCES.items()),
+        "q": q,
+        "page": page,
+        "rows": rows,
+        "counts": ln.counts(tenant),
+        "settings": settings_,
+        "test": test,
+        "preview": preview,
+        "pending_import": pending_import,
+        "querystring": urlencode(keep),
+        "back": request.get_full_path(),
+    }
+    return TemplateResponse(request, "admin/learning.html", context)
+
+
+def learning_import(request):
+    from crm import learning as ln
+
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    if request.method != "POST":
+        return _learning_back(request, tenant)
+    label = (request.POST.get("label") or "").strip()
+    category = (request.POST.get("category") or "").strip()[:64]
+    token = (request.POST.get("token") or "").strip()
+    seller = request.POST.get("seller") or ""
+
+    # Step 2: the operator picked which speaker was the seller.
+    if token and seller and re.fullmatch(r"[0-9a-f]{32}", token):
+        path = _import_dir() / f"{token}.txt"
+        if not path.exists():
+            messages.error(request, t("Yuklangan fayl topilmadi — qaytadan yuklang."))
+            return _learning_back(request, tenant)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        added, report = ln.import_chat(tenant, raw, seller, label, category)
+        path.unlink(missing_ok=True)
+        _report_note(request, added, report)
+        return HttpResponseRedirect(
+            f"{reverse('admin:learning')}?tenant={tenant}&status=pending&source=import"
+        )
+
+    # Step 1: take the file (or pasted text), keep it on disk, ask who is who.
+    upload = request.FILES.get("file")
+    if upload:
+        if upload.size > IMPORT_MAX_BYTES:
+            messages.error(request, t("Fayl juda katta (25 MB gacha)."))
+            return _learning_back(request, tenant)
+        raw = upload.read().decode("utf-8", errors="replace")
+        label = label or upload.name.rsplit(".", 1)[0]
+    else:
+        raw = request.POST.get("text") or ""
+    if not raw.strip():
+        messages.error(request, t("Fayl tanlang yoki chat matnini joylang."))
+        return _learning_back(request, tenant)
+    msgs = ln.parse_chat(raw)
+    if len(ln.speakers(msgs)) < 2:
+        messages.error(
+            request,
+            t("Chatdan ikki tomon topilmadi. Telegram (result.json), WhatsApp (.txt) yoki «Ism: matn» ko‘rinishida bo‘lsin."),
+        )
+        return _learning_back(request, tenant)
+    import uuid
+    from urllib.parse import urlencode
+
+    token = uuid.uuid4().hex
+    (_import_dir() / f"{token}.txt").write_text(raw, encoding="utf-8")
+    query = urlencode({"tenant": tenant, "import": token, "label": label or "chat",
+                       "category": category})
+    return HttpResponseRedirect(f"{reverse('admin:learning')}?{query}#import")
+
+
+def learning_manual(request):
+    from crm import learning as ln
+
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    if request.method == "POST":
+        ok, reason = ln.add_manual(
+            tenant,
+            request.POST.get("question") or "",
+            request.POST.get("reply") or "",
+            (request.POST.get("category") or "").strip()[:64],
+        )
+        if ok:
+            messages.success(request, t("Tajriba saqlandi — bot endi shundan foydalanadi."))
+        else:
+            messages.error(request, f"{t('Saqlanmadi')}: {t(reason)}")
+    return _learning_back(request, tenant)
+
+
+def learning_harvest(request):
+    from crm import learning as ln
+
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    if request.method == "POST":
+        kind = request.POST.get("kind")
+        if kind == "won":
+            added, report = ln.harvest_won(tenant)
+        else:
+            added, report = ln.harvest_operator(tenant)
+        _report_note(request, added, report)
+    return _learning_back(request, tenant)
+
+
+def learning_review(request):
+    from crm.models import LearningExample
+
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    if request.method != "POST":
+        return _learning_back(request, tenant)
+    action = request.POST.get("action") or ""
+    single = request.POST.get("id")
+    ids = [single] if single else request.POST.getlist("ids")
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    if not ids:
+        messages.error(request, t("Hech narsa tanlanmagan."))
+        return _learning_back(request, tenant)
+    qs = LearningExample.objects.filter(tenant_id=tenant, id__in=ids)
+    now = timezone.now()
+    if action == "approve":
+        n = qs.update(approved=True, reviewed_at=now)
+    elif action == "reject":
+        n = qs.update(approved=False, reviewed_at=now)
+    elif action == "pending":
+        n = qs.update(approved=None, reviewed_at=None)
+    elif action == "delete":
+        n = qs.count()
+        qs.delete()
+    elif action == "edit" and single:
+        question = (request.POST.get("question") or "").strip()
+        reply = (request.POST.get("reply") or "").strip()
+        if not question or not reply:
+            messages.error(request, t("Savol ham, javob ham bo‘sh bo‘lmasin."))
+            return _learning_back(request, tenant)
+        from crm.learning import mask
+
+        n = qs.update(
+            question=mask(question),
+            human_reply=mask(reply),
+            category=(request.POST.get("category") or "").strip()[:64] or None,
+            approved=True,
+            reviewed_at=now,
+        )
+    else:
+        return _learning_back(request, tenant)
+    messages.success(request, f"{t('Bajarildi')}: {n}")
+    return _learning_back(request, tenant)
+
+
+def learning_settings(request):
+    from crm import learning as ln
+
+    tenant = (request.POST.get("tenant") or DEFAULT_TENANT).strip()
+    if request.method == "POST":
+        ln.save_settings(tenant, request.POST)
+        messages.success(request, t("Saqlandi. Bir necha soniyada botga yetadi."))
+    return _learning_back(request, tenant)

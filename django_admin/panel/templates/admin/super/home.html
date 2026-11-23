@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% load panel_extras %}
+{% comment %}
+The platform owner's home: every tenant, and what needs attention. Read
+top to bottom it answers "is anything on fire, and how is each business doing".
+{% endcomment %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% t "Super admin" %}</h1>
+  <p>{% t "Bo‘limlar, adminlar, kirish huquqlari va tizim holati." %}</p>
+</div>
+{% include "admin/super/_tabs.html" %}
+
+<div class="stats">
+  {% for label, value, hint in kpis %}
+    <div class="stat"><div class="stat-label">{{ label }}</div><div class="stat-value">{{ value }}</div><div class="stat-hint">{{ hint }}</div></div>
+  {% endfor %}
+</div>
+
+<div class="grid split">
+  <div class="card">
+    <h2>{% t "Bo‘limlar" %}</h2>
+    <div class="table-scroll">
+    <table class="table">
+      <thead><tr>
+        <th>{% t "Bo‘lim" %}</th><th>{% t "Bot" %}</th><th class="num">{% t "Mijozlar" %}</th>
+        <th class="num">{% t "Faol · 7 kun" %}</th><th class="num">{% t "Tushum · 30 kun" %}</th>
+        <th>{% t "Adminlar" %}</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for x in tenants %}
+        <tr>
+          <td><b>{{ x.name }}</b><div class="sub">{{ x.tenant }}</div></td>
+          <td>{% if x.bot_enabled %}<span class="badge ok">{% t "Yoqiq" %}</span>{% else %}<span class="badge bad">{% t "O‘chiq" %}</span>{% endif %}</td>
+          <td class="num">{{ x.chats }}</td>
+          <td class="num">{{ x.active_week }}</td>
+          <td class="num">{{ x.revenue_month|pul }}</td>
+          <td>{% for u in x.admins %}{{ u.username }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="muted">—</span>{% endfor %}</td>
+          <td class="num"><a class="btn small" href="{% url 'admin:super_tenant' x.tenant %}">{% t "Boshqarish" %}</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2>{% t "Diqqat talab qiladi" %}</h2>
+      {% for level, text in attention %}
+        <div class="note {{ level }}" style="margin-bottom:.5rem">{{ text }}</div>
+      {% empty %}
+        <p class="empty">{% t "Hammasi joyida." %}</p>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h2>{% t "Xizmatlar" %}</h2>
+      <table class="table compact"><tbody>
+        {% for u in units %}
+          <tr><td>{{ u.label|t }}</td><td class="num">
+            {% if u.ok %}<span class="badge ok">{% t "ishlayapti" %}</span>
+            {% elif u.switched_off %}<span class="badge plain">{% t "o‘chirilgan" %}</span>
+            {% elif not u.installed %}<span class="badge plain">{% t "o‘rnatilmagan" %}</span>
+            {% else %}<span class="badge bad">{{ u.active_state }}</span>{% endif %}
+          </td></tr>
+        {% endfor %}
+      </tbody></table>
+      <div class="card-foot small muted">
+        {% t "Oxirgi zaxira" %}: {% if backup.last %}{{ backup.last|date:"d.m.Y H:i" }}{% else %}—{% endif %}
+        · <a href="{% url 'admin:super_backups' %}">{% t "batafsil" %}</a>
+      </div>
+    </div>
+    <div class="card">
+      <h2>{% t "Oxirgi harakatlar" %}</h2>
+      <table class="table compact"><tbody>
+        {% for e in recent %}
+          <tr><td class="nowrap small">{{ e.at|date:"d.m H:i" }}</td><td class="small"><b>{{ e.username }}</b> — {{ e.action|t }}</td></tr>
+        {% empty %}<tr><td class="empty">{% t "Hali yozuv yo‘q." %}</td></tr>{% endfor %}
+      </tbody></table>
+      <div class="card-foot small"><a href="{% url 'admin:super_audit' %}">{% t "To‘liq jurnal" %} →</a></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

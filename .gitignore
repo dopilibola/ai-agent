@@ -27,4 +27,5 @@ web/dist/
 # The panel's SQLite holds only users/sessions/admin log; the shared data lives
 # in Postgres, so this file is local state, not something to commit.
 django_admin/panel.sqlite3
+django_admin/.imports/
 django_admin/staticfiles/

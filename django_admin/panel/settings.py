@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "crm",
+    "accounts",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +89,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Admin vs super admin, tenant scoping and the action log (accounts/).
+    "accounts.middleware.RoleMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -152,7 +155,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 8},
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -181,6 +187,11 @@ WHITENOISE_USE_FINDERS = True
 WHITENOISE_AUTOREFRESH = DEBUG
 
 SESSION_COOKIE_NAME = "ai_sales_panel_sessionid"
+# A panel login lasts a working day, not the two-week Django default: the panel
+# can message customers and restart bots, and a forgotten laptop is the risk.
+SESSION_COOKIE_AGE = int(os.getenv("DJANGO_SESSION_HOURS", "12")) * 3600
+# Where `deploy/ai-sales-backup.sh` writes; the super admin's backups page lists it.
+BACKUP_DIR = os.getenv("BACKUP_DIR", str(Path.home() / "backups" / "ai-sales"))
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False
 X_FRAME_OPTIONS = "DENY"
