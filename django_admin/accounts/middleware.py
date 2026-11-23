@@ -6,8 +6,11 @@ remember to check is a rule that one of them forgets.
 
 For an **admin** (not a super admin):
 
-* super-admin-only paths answer 403 — the section itself and everything that
-  can break a running bot (prompts, `.env`, unit restarts, raw tables);
+* a page outside the sections a super admin granted them answers 403 (the
+  home page instead sends them to their first section), and the super-admin
+  section, raw tables and Django's user admin are never theirs
+  (`roles.SECTIONS`, `roles.ALWAYS_SUPER`);
+* a view-only admin gets 403 on every POST;
 * tenant scoping: a list page opened without `?tenant=` is redirected to the
   admin's own tenant, any other tenant in a query, a form or a URL is 403, and
   tenant pickers only list the admin's tenants.
@@ -27,17 +30,6 @@ from . import roles
 from .audit import record
 
 ADMIN_PREFIX = "/admin/"
-
-SUPER_ONLY = (
-    "super/",
-    "settings/",
-    "health/restart/",
-    "prompts/",
-    "learning/settings/",
-    "crm/",
-    "auth/",
-    "accounts/",
-)
 
 # Pages that show one tenant (or all of them) chosen by `?tenant=`.
 SCOPED_PAGES = {
@@ -77,6 +69,23 @@ _DETAIL_KEYS = ("action", "id", "chat_id", "key", "kind", "status", "unit", "ena
                 "username", "role", "days", "seller", "label")
 
 
+# Where each page section lives, for sending an admin to the first one they have.
+SECTION_URLS = {
+    "dashboard": "admin:index", "users": "admin:users", "outreach": "admin:outreach",
+    "learning": "admin:learning", "analytics": "admin:analytics", "health": "admin:health",
+    "prompts": "admin:prompts", "settings": "admin:settings_env",
+}
+
+
+def _first_page(granted) -> str | None:
+    from django.urls import reverse
+
+    for key in granted:
+        if key in SECTION_URLS:
+            return reverse(SECTION_URLS[key])
+    return None
+
+
 def _forbidden(request, reason: str):
     from django.contrib import admin
 
@@ -109,10 +118,22 @@ class RoleMiddleware:
     # ---------------------------------------------------------------- scoping
 
     def _check(self, request, rest: str):
-        if rest.startswith(("login/", "logout/", "password_change/", "jsi18n/")):
+        if rest.startswith(roles.OPEN_PATHS):
             return None
-        if rest.startswith(SUPER_ONLY):
+        if rest.startswith(roles.ALWAYS_SUPER):
             return _forbidden(request, "Bu bo‘lim faqat super admin uchun.")
+        granted = roles.sections_of(request.user)
+        section = roles.section_for(rest)
+        if section is None:
+            return _forbidden(request, "Bu bo‘lim faqat super admin uchun.")
+        if section not in granted:
+            if section == "dashboard" and request.method == "GET":
+                first = _first_page(granted)
+                if first:
+                    return HttpResponseRedirect(first)
+            return _forbidden(request, "Bu bo‘limga sizga ruxsat berilmagan. Super adminga murojaat qiling.")
+        if request.method == "POST" and not roles.can_edit(request.user):
+            return _forbidden(request, "Sizda faqat ko‘rish huquqi bor — o‘zgartirish kiritib bo‘lmaydi.")
         allowed = roles.allowed_tenants(request.user) or []
         if not allowed:
             return _forbidden(request, "Sizga hali hech qaysi bo‘lim biriktirilmagan. Super adminga murojaat qiling.")

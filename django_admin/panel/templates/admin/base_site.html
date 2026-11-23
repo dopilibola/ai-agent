@@ -5,7 +5,7 @@
 The panel's shell.
 
 Two of Django's own pieces are replaced rather than restyled. The header and the
-breadcrumb bar become **one** topbar — two stacked navigation strips on every
+breadcrumb bar become **one** side menu — two stacked navigation strips on every
 page was the main reason this thing felt heavy. And `dark-mode-vars` is emptied,
 which drops the admin's dark stylesheet and its theme toggle: this panel is read
 in daylight by people who never asked for a dark editor, so the theme is not a
@@ -18,45 +18,72 @@ per-visitor setting here.
 {% block dark-mode-vars %}{% endblock %}
 
 {% block extrastyle %}{{ block.super }}
-  <link rel="stylesheet" href="{% static 'panel/panel.css' %}">
+  <link rel="stylesheet" href="{% static 'panel/panel.css' %}?v=2026112302">
 {% endblock %}
 
-{% block bodyclass %}{{ block.super }} panel{% endblock %}
+{% comment %}
+`no-<section>` and `ro` let the stylesheet hide a button whose request the
+middleware would refuse anyway — the server is the gate, this only spares the
+person a 403.
+{% endcomment %}
+{% block bodyclass %}{{ block.super }} panel{% if user.is_authenticated %} has-side{% for k in panel_missing %} no-{{ k }}{% endfor %}{% if not panel_can_edit %} ro{% endif %}{% endif %}{% endblock %}
 
 {% block header %}
-  <header class="topbar">
-    <div class="topbar-in">
-      <a class="brand" href="{% url 'admin:index' %}">AI <span>Sales</span></a>
-      {% if user.is_authenticated %}
-        <nav class="tabs" aria-label="{% t 'Bo‘limlar' %}">
-          {% for label, url in panel_nav %}
-            <a href="{{ url }}" {% if panel_path == url %}class="active"{% endif %}>{{ label|t }}</a>
-          {% endfor %}
-        </nav>
-        <div class="topbar-user">
-          {% comment %}
-          Two languages, one click each. Uzbek is the source language of the
-          panel's copy, so the switch changes Django's own strings through its
-          shipped catalogues and the panel's through `crm/i18n.py`.
-          {% endcomment %}
-          <form action="{% url 'set_language' %}" method="post" class="langs">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            {% get_current_language as LANG %}
-            <button type="submit" name="language" value="uz"
-                    class="{% if LANG == 'uz' %}on{% endif %}">UZ</button>
-            <button type="submit" name="language" value="en"
-                    class="{% if LANG == 'en' %}on{% endif %}">EN</button>
-          </form>
-          <span>{{ user.get_username }}
-            {% if panel_role == "superadmin" %}<span class="badge ok">{% t "Super admin" %}</span>{% else %}<span class="badge plain">{% t "Admin" %}</span>{% endif %}
-          </span>
-          <a href="{% url 'admin:password_change' %}">{% t "Parol" %}</a>
-          <a href="{% url 'admin:logout' %}">{% t "Chiqish" %}</a>
-        </div>
+  {% if user.is_authenticated %}
+  {% comment %}
+  One side menu instead of a top strip: with ten pages for a super admin the
+  strip wrapped onto two lines, and a list that wraps is a list nobody scans.
+  Pages an admin was not granted are simply absent (`roles.sections_of`).
+  {% endcomment %}
+  <aside class="side" aria-label="{% t 'Bo‘limlar' %}">
+    <a class="brand" href="{% url 'admin:index' %}">
+      <span class="brand-mark">{% icon "spark" 18 %}</span>
+      <span class="brand-name">AI Sales<small>{% if panel_role == "superadmin" %}{% t "Boshqaruv paneli" %}{% else %}{% t "Ish paneli" %}{% endif %}</small></span>
+    </a>
+    <nav class="side-nav">
+      <div class="side-group">{% t "Ish" %}</div>
+      {% for label, url, ico in panel_nav %}
+        <a href="{{ url }}" class="{% if panel_path == url %}active{% elif url != '/admin/' and url in panel_path %}active{% endif %}">{% icon ico %}<span>{{ label|t }}</span></a>
+      {% endfor %}
+      {% if super_nav %}
+        <div class="side-group">{% t "Super admin" %}</div>
+        {% for label, url, ico in super_nav %}
+          <a href="{{ url }}" class="{% if panel_path == url %}active{% endif %}">{% icon ico %}<span>{{ label|t }}</span></a>
+        {% endfor %}
       {% endif %}
+    </nav>
+    <div class="side-foot">
+      <div class="me">
+        <span class="avatar">{{ user.get_username|first|upper }}</span>
+        <span class="me-name">{{ user.first_name|default:user.get_username }}
+          <small>{% if panel_role == "superadmin" %}{% t "Super admin" %}{% elif not panel_can_edit %}{% t "Admin · faqat ko‘rish" %}{% else %}{% t "Admin" %}{% endif %}</small></span>
+      </div>
+      <div class="side-actions">
+        {% comment %}
+        Two languages, one click each. Uzbek is the source language of the
+        panel's copy, so the switch changes Django's own strings through its
+        shipped catalogues and the panel's through `crm/i18n.py`.
+        {% endcomment %}
+        <form action="{% url 'set_language' %}" method="post" class="langs">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          {% get_current_language as LANG %}
+          <button type="submit" name="language" value="uz" class="{% if LANG == 'uz' %}on{% endif %}">UZ</button>
+          <button type="submit" name="language" value="en" class="{% if LANG == 'en' %}on{% endif %}">EN</button>
+        </form>
+        <a href="{% url 'admin:password_change' %}" title="{% t 'Parol' %}">{% icon "key" 16 %}</a>
+        {% comment %} Django 5 signs out on POST only; a plain link answers 405. {% endcomment %}
+        <form method="post" action="{% url 'admin:logout' %}" class="inline">{% csrf_token %}
+          <button type="submit" title="{% t 'Chiqish' %}">{% icon "logout" 16 %}</button></form>
+      </div>
     </div>
-  </header>
+  </aside>
+  {% if not panel_can_edit %}
+    <div class="ro-banner">{% icon "eye" 16 %} {% t "Sizda faqat ko‘rish huquqi bor — o‘zgartirishlar saqlanmaydi." %}</div>
+  {% endif %}
+  {% else %}
+  <div class="login-brand"><span class="brand-mark">{% icon "spark" 20 %}</span> AI Sales</div>
+  {% endif %}
 {% endblock %}
 
 {% block nav-breadcrumbs %}{% endblock %}

@@ -264,6 +264,8 @@ def admins(request):
             "user": u,
             "role": roles.role_of(u),
             "tenants": profile.tenant_list() if profile else [],
+            "sections": list(roles.sections_of(u)) if u.is_superuser else (profile.section_list() if profile else []),
+            "readonly": bool(profile and profile.readonly) and not u.is_superuser,
             "phone": profile.phone if profile else "",
             "note": profile.note if profile else "",
             "sessions": sessions.get(u.id, 0),
@@ -271,16 +273,27 @@ def admins(request):
     return TemplateResponse(request, "admin/super/admins.html", _ctx(
         request, "Adminlar", rows=rows, all_tenants=known_tenants(),
         edit=request.GET.get("edit") or "",
+        sections=roles.SECTIONS, default_sections=roles.DEFAULT_SECTIONS,
+        section_labels=roles.SECTION_LABELS,
+        presets={k: ",".join(v) for k, v in roles.PRESETS.items()},
     ))
 
 
-def _apply_role(user, role: str, tenants: list[str]):
+def _apply_role(user, role: str, tenants: list[str], post=None):
     user.is_staff = True
     user.is_superuser = role == roles.SUPER
     user.save()
     profile, _ = AdminProfile.objects.get_or_create(user=user)
     profile.tenants = ",".join(tenants)
+    if post is not None:
+        # A super admin holds every section; the boxes only mean something for an admin.
+        profile.sections = ",".join(roles.clean_sections(post.getlist("sections")))
+        profile.readonly = post.get("readonly") == "on" and role == roles.ADMIN
     return profile
+
+
+def _sections_missing(role: str, post) -> bool:
+    return role == roles.ADMIN and not roles.clean_sections(post.getlist("sections"))
 
 
 def admin_create(request):
@@ -299,6 +312,9 @@ def admin_create(request):
     if role == roles.ADMIN and not tenants:
         messages.error(request, t("Adminga kamida bitta bo‘lim biriktiring."))
         return back
+    if _sections_missing(role, request.POST):
+        messages.error(request, t("Kamida bitta sahifaga ruxsat bering."))
+        return back
     candidate = User(username=username, first_name=(request.POST.get("name") or "").strip()[:150])
     try:
         validate_password(password, candidate)
@@ -307,7 +323,7 @@ def admin_create(request):
         return back
     candidate.set_password(password)
     candidate.save()
-    profile = _apply_role(candidate, role, tenants)
+    profile = _apply_role(candidate, role, tenants, request.POST)
     profile.phone = (request.POST.get("phone") or "").strip()[:32]
     profile.note = (request.POST.get("note") or "").strip()[:255]
     profile.save()
@@ -365,12 +381,15 @@ def admin_update(request):
         if role == roles.ADMIN and not tenants:
             messages.error(request, t("Adminga kamida bitta bo‘lim biriktiring."))
             return back
+        if _sections_missing(role, request.POST):
+            messages.error(request, t("Kamida bitta sahifaga ruxsat bering."))
+            return back
         if role == roles.ADMIN and user.is_superuser and not User.objects.filter(
             is_superuser=True, is_active=True
         ).exclude(pk=user.pk).exists():
             messages.error(request, t("Oxirgi super adminni pasaytirib bo‘lmaydi."))
             return back
-        profile = _apply_role(user, role, tenants)
+        profile = _apply_role(user, role, tenants, request.POST)
         profile.phone = (request.POST.get("phone") or "").strip()[:32]
         profile.note = (request.POST.get("note") or "").strip()[:255]
         profile.save()

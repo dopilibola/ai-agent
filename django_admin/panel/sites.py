@@ -38,6 +38,8 @@ class PanelAdminSite(admin.AdminSite):
     site_title = "AI Sales"
     site_header = "AI Sales"
     index_title = "Bosh sahifa"
+    # The panel draws its own side menu; Django's model sidebar would be a second one.
+    enable_nav_sidebar = False
 
     def get_urls(self):
         from panel import super_views as sv
@@ -160,30 +162,33 @@ class PanelAdminSite(admin.AdminSite):
         from accounts import roles
 
         is_super = roles.is_super(request.user)
-        nav = [
-            ("Bosh sahifa", reverse("admin:index")),
-            ("Mijozlar", reverse("admin:users")),
-            ("Avto-xabarlar", reverse("admin:outreach")),
-            ("O‘qitish", reverse("admin:learning")),
-            ("Tahlil", reverse("admin:analytics")),
-            ("Holat", reverse("admin:health")),
+        granted = roles.sections_of(request.user) if request.user.is_authenticated else ()
+        # (section, label, url name, icon). Capabilities (reply, export,
+        # restart) are sections without a page, so they are not listed.
+        pages = [
+            ("dashboard", "Bosh sahifa", "admin:index", "home"),
+            ("users", "Mijozlar", "admin:users", "users"),
+            ("outreach", "Avto-xabarlar", "admin:outreach", "send"),
+            ("learning", "O‘qitish", "admin:learning", "book"),
+            ("analytics", "Tahlil", "admin:analytics", "chart"),
+            ("health", "Holat", "admin:health", "pulse"),
+            ("prompts", "Bot qoidalari", "admin:prompts", "script"),
+            ("settings", "Sozlamalar", "admin:settings_env", "gear"),
         ]
+        nav = [(label, reverse(name), ico) for key, label, name, ico in pages if key in granted]
         if is_super:
-            # The pages that can break a running bot stay with the super admin.
-            nav[3:3] = [("Bot qoidalari", reverse("admin:prompts"))]
-            nav += [
-                ("Sozlamalar", reverse("admin:settings_env")),
-                ("Jadvallar", reverse("admin:crm_conversationevent_changelist")),
-                ("Super admin", reverse("admin:super_home")),
-            ]
+            nav.append(("Jadvallar", reverse("admin:crm_conversationevent_changelist"), "table"))
         context["panel_nav"] = nav
         context["panel_role"] = roles.role_of(request.user) if request.user.is_authenticated else ""
+        context["panel_sections"] = granted
+        context["panel_missing"] = [k for k in roles.SECTION_KEYS if k not in granted]
+        context["panel_can_edit"] = roles.can_edit(request.user) if request.user.is_authenticated else False
         context["super_nav"] = [
-            ("Super admin", reverse("admin:super_home")),
-            ("Adminlar", reverse("admin:super_admins")),
-            ("Jurnal", reverse("admin:super_audit")),
-            ("Xavfsizlik", reverse("admin:super_security")),
-            ("Zaxira nusxalar", reverse("admin:super_backups")),
+            ("Umumiy", reverse("admin:super_home"), "shield"),
+            ("Adminlar va ruxsatlar", reverse("admin:super_admins"), "key"),
+            ("Jurnal", reverse("admin:super_audit"), "list"),
+            ("Xavfsizlik", reverse("admin:super_security"), "lock"),
+            ("Zaxira nusxalar", reverse("admin:super_backups"), "archive"),
         ] if is_super else []
         context["panel_path"] = request.path
         return context

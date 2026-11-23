@@ -54,7 +54,7 @@ something is wrong.
         <td class="sub">{{ u.since|default:"—" }}</td>
         <td class="num">{{ u.restarts }}</td>
         <td class="num">
-          {% if u.restartable and u.installed and panel_role == "superadmin" %}
+          {% if u.restartable and u.installed and "restart" in panel_sections and panel_can_edit %}
             <form method="post" action="{% url 'admin:health_restart' %}" style="margin:0">
               {% csrf_token %}
               <input type="hidden" name="unit" value="{{ u.name }}">

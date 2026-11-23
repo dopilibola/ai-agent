@@ -1,0 +1,30 @@
+{% load panel_extras %}
+{% comment %}
+The access block of the admin form, shared by "create" and "edit".
+`chosen` is the list of granted section keys, `ro` the view-only flag. The
+preset buttons only tick boxes — the server still validates every key.
+{% endcomment %}
+<div class="access" data-access>
+  <div class="access-head">
+    <label>{% t "Ruxsatlar — qaysi sahifalarni ochadi" %}</label>
+    <div class="presets">
+      <span class="muted small">{% t "Tayyor to‘plam:" %}</span>
+      <button type="button" class="btn small" data-preset="{{ presets.operator }}">{% t "Operator" %}</button>
+      <button type="button" class="btn small" data-preset="{{ presets.manager }}">{% t "Menejer" %}</button>
+      <button type="button" class="btn small" data-preset="{{ presets.viewer }}" data-ro="1">{% t "Kuzatuvchi" %}</button>
+    </div>
+  </div>
+  <div class="perm-grid">
+    {% for key, label, prefixes, help in sections %}
+      <label class="perm{% if key == 'prompts' or key == 'settings' or key == 'restart' %} risky{% endif %}">
+        <input type="checkbox" name="sections" value="{{ key }}" {% if key in chosen %}checked{% endif %}>
+        <span><b>{{ label|t }}</b><small>{{ help|t }}</small></span>
+      </label>
+    {% endfor %}
+  </div>
+  <label class="perm ro">
+    <input type="checkbox" name="readonly" {% if ro %}checked{% endif %}>
+    <span><b>{% icon "eye" 15 %} {% t "Faqat ko‘rish" %}</b><small>{% t "Sahifalarni ochadi, lekin hech narsani o‘zgartira olmaydi va mijozga yozolmaydi." %}</small></span>
+  </label>
+  <div class="help small muted">{% t "Super adminga bu belgilar kerak emas — u hamma narsani ko‘radi." %}</div>
+</div>

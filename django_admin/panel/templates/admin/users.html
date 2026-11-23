@@ -37,7 +37,7 @@ directory that tries to show everything is a directory nobody scans.
   </select>
   {% if segment %}<input type="hidden" name="segment" value="{{ segment }}">{% endif %}
   <span class="spacer"></span>
-  <a class="btn small" href="{% url 'admin:users_csv' %}?{{ querystring }}">CSV</a>
+  <a class="btn small" data-need="export" href="{% url 'admin:users_csv' %}?{{ querystring }}">CSV</a>
 </form>
 {% include "admin/_evalnote.html" %}
 

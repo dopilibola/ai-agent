@@ -38,7 +38,7 @@ something sit right under the name; everything below them is information.
     Only the two facts a person knows and the system cannot see. The heat
     categories are the score's estimate and are not offered for hand-editing.
     {% endcomment %}
-    <form method="post" action="{% url 'admin:set_state' %}">
+    <form method="post" action="{% url 'admin:set_state' %}" data-need="reply">
       {% csrf_token %}
       <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
       <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
@@ -53,7 +53,7 @@ something sit right under the name; everything below them is information.
     </form>
 
     {% if row.muted_at %}
-      <form method="post" action="{% url 'admin:chat_unmute' %}">
+      <form method="post" action="{% url 'admin:chat_unmute' %}" data-need="reply">
         {% csrf_token %}
         <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
         <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
@@ -63,7 +63,7 @@ something sit right under the name; everything below them is information.
     {% endif %}
   </div>
 
-  <form method="post" action="{% url 'admin:schedule_followup' %}" class="toolbar" style="margin:.9rem 0 0">
+  <form method="post" action="{% url 'admin:schedule_followup' %}" data-need="reply" class="toolbar" style="margin:.9rem 0 0">
     {% csrf_token %}
     <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
     <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
@@ -105,7 +105,7 @@ something sit right under the name; everything below them is information.
     account; on WhatsApp there is no account to type from, so without this box
     there is no way at all to reply to a WhatsApp customer.
     {% endcomment %}
-    <form method="post" action="{% url 'admin:operator_reply' %}" class="reply">
+    <form method="post" action="{% url 'admin:operator_reply' %}" data-need="reply" class="reply">
       {% csrf_token %}
       <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
       <input type="hidden" name="chat_id" value="{{ row.chat_id }}">
@@ -181,7 +181,7 @@ something sit right under the name; everything below them is information.
                 <div class="sub">{{ task.scheduled_for|date:"d.m.Y H:i" }}{% if task.waiting %} · {% t "kutmoqda" %}{% endif %}</div>
               </td>
               <td class="num">
-                <form method="post" action="{% url 'admin:outreach_task' %}" style="display:inline">
+                <form method="post" action="{% url 'admin:outreach_task' %}" data-need="outreach" style="display:inline">
                   {% csrf_token %}
                   <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
                   <input type="hidden" name="task_id" value="{{ task.task_id }}">
@@ -196,7 +196,7 @@ something sit right under the name; everything below them is information.
       {% else %}
         <p class="empty">{% t "Rejada xabar yo‘q." %}</p>
       {% endif %}
-      <form method="post" action="{% url 'admin:outreach_stop_chat' %}" class="card-foot">
+      <form method="post" action="{% url 'admin:outreach_stop_chat' %}" data-need="outreach" class="card-foot">
         {% csrf_token %}
         <input type="hidden" name="tenant" value="{{ row.tenant_id }}">
         <input type="hidden" name="chat_id" value="{{ row.chat_id }}">

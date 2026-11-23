@@ -11,8 +11,8 @@ Two roles, mirroring the split operators asked for:
   backups, and the pages that can break a working bot (prompts, `.env`
   settings, unit restarts, raw tables).
 * **Admin** — a staff user with an `AdminProfile` naming the tenants they work
-  for. Works the customers, auto messages, training queue and analytics of
-  those tenants only.
+  for and the *sections* (pages) a super admin granted them, optionally view
+  only. See `roles.SECTIONS`.
 """
 
 from __future__ import annotations
@@ -30,9 +30,21 @@ class AdminProfile(models.Model):
     tenants = models.CharField(max_length=255, blank=True, default="")
     phone = models.CharField(max_length=32, blank=True, default="")
     note = models.CharField(max_length=255, blank=True, default="")
+    # Comma-separated section keys from `roles.SECTIONS` — which pages this
+    # admin may open. The default is what every admin could open before
+    # sections existed, so the migration changes nobody's access.
+    sections = models.CharField(
+        max_length=255, blank=True,
+        default="dashboard,users,reply,export,outreach,learning,analytics,health",
+    )
+    # View only: the admin may open their sections but every POST is refused.
+    readonly = models.BooleanField(default=False)
 
     def tenant_list(self) -> list[str]:
         return [t.strip() for t in self.tenants.split(",") if t.strip()]
+
+    def section_list(self) -> list[str]:
+        return [t.strip() for t in self.sections.split(",") if t.strip()]
 
     def __str__(self) -> str:
         return f"{self.user} → {self.tenants or '—'}"

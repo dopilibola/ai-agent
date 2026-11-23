@@ -1,6 +1,5 @@
-{% load panel_extras %}
-<div class="tabs" style="margin-bottom:1.2rem">
-  {% for label, url in super_nav %}
-    <a href="{{ url }}" {% if label == super_tab %}class="active"{% endif %}>{{ label|t }}</a>
-  {% endfor %}
-</div>
+{% comment %}
+The super-admin pages used to carry their own tab strip. They are now a group in
+the side menu (`admin/base_site.html`), so this include is deliberately empty —
+kept so the pages that include it need no edit.
+{% endcomment %}

@@ -1,77 +1,82 @@
 {% extends "admin/base_site.html" %}
 {% load panel_extras %}
 {% comment %}
-Who can log in, as what, to which tenants. An admin works the customers of
-their own tenants; a super admin also gets this section and the pages that can
-break a running bot.
+Who can log in, as what, to which tenants, and which pages they may open. An
+admin works only the pages ticked here (`accounts/roles.py::SECTIONS`) and only
+their own tenants, optionally view-only; a super admin sees everything.
 {% endcomment %}
 {% block nav-sidebar %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>{% t "Adminlar" %}</h1>
-  <p>{% t "Kim panelga kira oladi, qaysi rolda va qaysi bo‘limlarga." %}</p>
+  <h1>{% t "Adminlar va ruxsatlar" %}</h1>
+  <p>{% t "Kim panelga kira oladi, qaysi rolda va qaysi sahifalarni ochadi." %}</p>
 </div>
-{% include "admin/super/_tabs.html" %}
+
+{% for r in rows %}{% with u=r.user %}{% if edit == u.pk|stringformat:"s" %}
+<div class="card" id="edit" style="margin-bottom:1.4rem">
+  <h2>{{ u.username }} — {% t "boshqarish" %}</h2>
+  <form method="post" action="{% url 'admin:super_admin_update' %}" class="edit-form">
+    {% csrf_token %}
+    <input type="hidden" name="id" value="{{ u.pk }}">
+    <input type="hidden" name="action" value="edit">
+    <div>
+      <div class="field"><label>{% t "Ism" %}</label><input type="text" name="name" value="{{ u.first_name }}"></div>
+      <div class="field"><label>{% t "Telefon" %}</label><input type="text" name="phone" value="{{ r.phone }}"></div>
+      <div class="field"><label>{% t "Rol" %}</label>
+        <select name="role">
+          <option value="admin" {% if r.role == "admin" %}selected{% endif %}>{% t "Admin" %}</option>
+          <option value="superadmin" {% if r.role == "superadmin" %}selected{% endif %}>{% t "Super admin" %}</option>
+        </select></div>
+      <div class="field"><label>{% t "Loyihalar (admin uchun)" %}</label>
+        {% for tn in all_tenants %}<label class="small" style="margin-right:.8rem"><input type="checkbox" name="tenants" value="{{ tn }}" {% if tn in r.tenants %}checked{% endif %}> {{ tn }}</label>{% endfor %}</div>
+      <div class="field"><label>{% t "Izoh" %}</label><input type="text" name="note" value="{{ r.note }}"></div>
+      <div class="reply-foot"><button class="btn primary">{% t "Saqlash" %}</button>
+        <a class="btn" href="{% url 'admin:super_admins' %}">{% t "Yopish" %}</a></div>
+    </div>
+    <div>{% include "admin/super/_access.html" with chosen=r.sections ro=r.readonly %}</div>
+  </form>
+  <div class="card-foot edit-extra">
+    <form method="post" action="{% url 'admin:super_admin_update' %}" class="inline-row">
+      {% csrf_token %}
+      <input type="hidden" name="id" value="{{ u.pk }}">
+      <input type="hidden" name="action" value="password">
+      <input type="password" name="password" autocomplete="new-password" minlength="8" required placeholder="{% t 'Yangi parol' %}">
+      <button class="btn small">{% t "Parolni almashtirish" %}</button>
+    </form>
+    <form method="post" action="{% url 'admin:super_admin_update' %}" class="inline-row">
+      {% csrf_token %}
+      <input type="hidden" name="id" value="{{ u.pk }}">
+      <button class="btn small" name="action" value="sessions">{% t "Sessiyalarini yopish" %}</button>
+      {% if u.pk != request.user.pk %}
+        {% if u.is_active %}
+          <button class="btn small danger" name="action" value="block" onclick="return confirm('{% t "Bloklansinmi? Darhol paneldan chiqariladi." %}')">{% t "Bloklash" %}</button>
+        {% else %}
+          <button class="btn small primary" name="action" value="unblock">{% t "Blokdan chiqarish" %}</button>
+        {% endif %}
+      {% endif %}
+    </form>
+  </div>
+</div>
+{% endif %}{% endwith %}{% endfor %}
 
 <div class="grid split">
-  <div class="stack">
-  {% for r in rows %}{% with u=r.user %}{% if edit == u.pk|stringformat:"s" %}
-  <div class="card" id="edit" style="margin-bottom:1rem">
-    <h2>{{ u.username }} — {% t "boshqarish" %}</h2>
-    <div class="grid split">
-            <form method="post" action="{% url 'admin:super_admin_update' %}" class="reply">
-              {% csrf_token %}
-              <input type="hidden" name="id" value="{{ u.pk }}">
-              <input type="hidden" name="action" value="edit">
-              <div class="field"><label>{% t "Ism" %}</label><input type="text" name="name" value="{{ u.first_name }}"></div>
-              <div class="field"><label>{% t "Telefon" %}</label><input type="text" name="phone" value="{{ r.phone }}"></div>
-              <div class="field"><label>{% t "Rol" %}</label>
-                <select name="role">
-                  <option value="admin" {% if r.role == "admin" %}selected{% endif %}>{% t "Admin" %}</option>
-                  <option value="superadmin" {% if r.role == "superadmin" %}selected{% endif %}>{% t "Super admin" %}</option>
-                </select></div>
-              <div class="field"><label>{% t "Bo‘limlar (admin uchun)" %}</label>
-                {% for tn in all_tenants %}<label class="small" style="margin-right:.8rem"><input type="checkbox" name="tenants" value="{{ tn }}" {% if tn in r.tenants %}checked{% endif %}> {{ tn }}</label>{% endfor %}</div>
-              <div class="field"><label>{% t "Izoh" %}</label><input type="text" name="note" value="{{ r.note }}"></div>
-              <div class="reply-foot"><button class="btn small primary">{% t "Saqlash" %}</button></div>
-            </form>
-            <div class="stack">
-              <form method="post" action="{% url 'admin:super_admin_update' %}" class="reply">
-                {% csrf_token %}
-                <input type="hidden" name="id" value="{{ u.pk }}">
-                <input type="hidden" name="action" value="password">
-                <div class="field"><label>{% t "Yangi parol" %}</label><input type="password" name="password" autocomplete="new-password" minlength="8" required></div>
-                <div class="reply-foot"><button class="btn small">{% t "Parolni almashtirish" %}</button></div>
-              </form>
-              <form method="post" action="{% url 'admin:super_admin_update' %}" style="margin-top:.8rem">
-                {% csrf_token %}
-                <input type="hidden" name="id" value="{{ u.pk }}">
-                <button class="btn small" name="action" value="sessions">{% t "Sessiyalarini yopish" %}</button>
-                {% if u.pk != request.user.pk %}
-                  {% if u.is_active %}
-                    <button class="btn small" name="action" value="block" onclick="return confirm('{% t "Bloklansinmi? Darhol paneldan chiqariladi." %}')">{% t "Bloklash" %}</button>
-                  {% else %}
-                    <button class="btn small primary" name="action" value="unblock">{% t "Blokdan chiqarish" %}</button>
-                  {% endif %}
-                {% endif %}
-              </form>
-            </div>
-          </div>
-    <div class="card-foot"><a class="btn small" href="{% url 'admin:super_admins' %}">{% t "Yopish" %}</a></div>
-  </div>
-  {% endif %}{% endwith %}{% endfor %}
-  <div class="card">
+  <div class="card flush">
+    <h2>{% t "Foydalanuvchilar" %} <span class="muted">· {{ rows|length }}</span></h2>
     <div class="table-scroll">
     <table class="table">
-      <thead><tr><th>{% t "Foydalanuvchi" %}</th><th>{% t "Rol" %}</th><th>{% t "Bo‘limlar" %}</th><th>{% t "Oxirgi kirish" %}</th><th>{% t "Holati" %}</th><th></th></tr></thead>
+      <thead><tr><th>{% t "Foydalanuvchi" %}</th><th>{% t "Rol" %}</th><th>{% t "Loyiha" %}</th><th>{% t "Ruxsatlar" %}</th><th>{% t "Oxirgi kirish" %}</th><th>{% t "Holati" %}</th><th></th></tr></thead>
       <tbody>
       {% for r in rows %}{% with u=r.user %}
         <tr>
-          <td><b>{{ u.username }}</b>{% if u.pk == request.user.pk %} <span class="badge plain">{% t "siz" %}</span>{% endif %}
-            <div class="sub">{{ u.first_name }}{% if r.phone %} · {{ r.phone }}{% endif %}</div></td>
+          <td><span class="who-cell"><span class="avatar sm">{{ u.username|first|upper }}</span>
+            <span><b class="who">{{ u.username }}</b>{% if u.pk == request.user.pk %} <span class="badge plain">{% t "siz" %}</span>{% endif %}
+            <div class="sub">{{ u.first_name }}{% if r.phone %} · {{ r.phone }}{% endif %}</div></span></span></td>
           <td>{% if r.role == "superadmin" %}<span class="badge ok">{% t "Super admin" %}</span>{% else %}<span class="badge plain">{% t "Admin" %}</span>{% endif %}</td>
           <td class="small">{% if r.role == "superadmin" %}<span class="muted">{% t "hammasi" %}</span>{% else %}{{ r.tenants|join:", "|default:"—" }}{% endif %}</td>
+          <td class="small">{% if r.role == "superadmin" %}<span class="muted">{% t "to‘liq" %}</span>{% else %}
+            <div class="perm-tags">{% for k in r.sections %}<span class="tag">{{ section_labels|dictkey:k|t }}</span>{% empty %}<span class="muted">—</span>{% endfor %}
+            {% if r.readonly %}<span class="tag ro">{% t "faqat ko‘rish" %}</span>{% endif %}</div>{% endif %}</td>
           <td class="small nowrap">{% if u.last_login %}{{ u.last_login|date:"d.m.Y H:i" }}{% else %}<span class="muted">{% t "kirmagan" %}</span>{% endif %}
             {% if r.sessions %}<div class="sub">{{ r.sessions }} {% t "ta ochiq sessiya" %}</div>{% endif %}</td>
           <td>{% if u.is_active %}<span class="badge ok">{% t "Faol" %}</span>{% else %}<span class="badge bad">{% t "Bloklangan" %}</span>{% endif %}</td>
@@ -81,7 +86,6 @@ break a running bot.
       </tbody>
     </table>
     </div>
-  </div>
   </div>
 
   <div class="card">
@@ -95,15 +99,29 @@ break a running bot.
       <div class="field"><label>{% t "Telefon" %}</label><input type="text" name="phone"></div>
       <div class="field"><label>{% t "Rol" %}</label>
         <select name="role"><option value="admin">{% t "Admin" %}</option><option value="superadmin">{% t "Super admin" %}</option></select></div>
-      <div class="field"><label>{% t "Bo‘limlar (admin uchun)" %}</label>
+      <div class="field"><label>{% t "Loyihalar (admin uchun)" %}</label>
         {% for tn in all_tenants %}<label class="small" style="margin-right:.8rem"><input type="checkbox" name="tenants" value="{{ tn }}" {% if forloop.first %}checked{% endif %}> {{ tn }}</label>{% endfor %}</div>
+      {% include "admin/super/_access.html" with chosen=default_sections ro=False %}
       <div class="field"><label>{% t "Izoh" %}</label><input type="text" name="note"></div>
       <div class="reply-foot"><button class="btn primary">{% t "Yaratish" %}</button></div>
     </form>
     <div class="card-foot small muted">
-      <b>{% t "Admin" %}</b>: {% t "mijozlar, avto-xabarlar, o‘qitish, tahlil — faqat o‘z bo‘limi." %}<br>
-      <b>{% t "Super admin" %}</b>: {% t "hammasi + bot qoidalari, sozlamalar, restart, jadvallar va shu bo‘lim." %}
+      <b>{% t "Admin" %}</b>: {% t "faqat siz belgilagan sahifalar va faqat o‘z loyihasi." %}<br>
+      <b>{% t "Super admin" %}</b>: {% t "hammasi + jadvallar va shu bo‘lim." %}
     </div>
   </div>
 </div>
+
+<script>
+// Preset buttons tick a ready-made set of boxes; the server re-checks every key.
+document.querySelectorAll("[data-access]").forEach(function (box) {
+  box.querySelectorAll("[data-preset]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var keys = btn.dataset.preset.split(",");
+      box.querySelectorAll('input[name="sections"]').forEach(function (c) { c.checked = keys.indexOf(c.value) >= 0; });
+      box.querySelector('input[name="readonly"]').checked = btn.dataset.ro === "1";
+    });
+  });
+});
+</script>
 {% endblock %}

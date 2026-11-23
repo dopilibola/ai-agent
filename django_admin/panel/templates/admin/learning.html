@@ -176,6 +176,7 @@ the bot would pull, chat upload, hand-written experience, and the harvests.
       {% endif %}
     </div>
 
+    {% if panel_role == "superadmin" %}{% comment %} The retrieval knobs stay the super admin's (`roles.ALWAYS_SUPER`). {% endcomment %}
     <div class="card">
       <h2>{% t "Boshqaruv" %}</h2>
       <form method="post" action="{% url 'admin:learning_settings' %}">
@@ -199,6 +200,7 @@ the bot would pull, chat upload, hand-written experience, and the harvests.
         <button class="btn primary">{% t "Saqlash" %}</button>
       </form>
     </div>
+    {% endif %}
 
     <div class="card">
       <h2>{% t "Chat yuklash" %}</h2>
